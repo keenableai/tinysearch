@@ -355,6 +355,7 @@ async fn explicit_quick_depth_is_rejected_when_only_deep_research_is_usable() {
     // narrows its removal to the stale-`deep` case only).
     let fixture = fixture(&[], |config| {
         config.providers.remove("gemini");
+        config.providers.remove("exa");
     });
     let error = fixture
         .service
