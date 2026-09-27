@@ -25,19 +25,9 @@ pub(crate) fn builtins() -> BTreeMap<String, Arc<dyn SearchProvider>> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_default();
-    [
-        "parallel",
-        "tinyfish",
-        "gemini",
-        "gemini_deep_research",
-        "exa",
-        "brave",
-        "querit",
-        "tavily",
-        "seltz",
-        "searxng",
-    ]
-    .into_iter()
+    tinysearch_bus::PROVIDERS
+        .iter()
+        .copied()
     .map(|name| {
         (
             name.into(),
@@ -69,13 +59,10 @@ impl BuiltinProvider {
         request: &ExecuteToolRequest,
     ) -> Result<ExecuteToolResponse> {
         let (path, body) = match self.name {
-            "parallel" if config.route == ProviderRoute::Direct => {
-                return direct::run(&self.client, self.name, config, request).await;
-            }
+            "exa" if config.route == ProviderRoute::Backend => exa_request(request)?,
             "exa" | "brave" | "querit" | "tavily" | "seltz" | "searxng" => {
                 return direct::run(&self.client, self.name, config, request).await;
             }
-            "parallel" => parallel_request(request)?,
             "tinyfish" => tinyfish_request(request)?,
             "gemini" => return self.gemini(config, backend, request).await,
             "gemini_deep_research" => return self.deep_research(config, request).await,
@@ -92,22 +79,7 @@ impl BuiltinProvider {
             backend_url(backend, &path)?,
             Some(body),
             Auth::Backend(backend),
-            if matches!(
-                request.name.as_str(),
-                "parallel_research" | "parallel_enrich"
-            ) {
-                Duration::from_secs(
-                    request
-                        .arguments
-                        .get("timeout_seconds")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(600)
-                        .min(900)
-                        + 30,
-                )
-            } else {
-                Duration::from_secs(35)
-            },
+            direct::configured_timeout(config, Duration::from_secs(35)),
         )
         .await?;
         let value = unwrap_backend(value)?;
@@ -368,40 +340,13 @@ async fn send_json(
     if let Some(body) = body {
         request = request.json(&body);
     }
-    let mut response = request
-        .send()
-        .await
-        .map_err(|_| Error::Provider("provider transport failed".into()))?;
-    if !response.status().is_success() {
-        return Err(Error::Provider(format!(
-            "provider returned HTTP {}",
-            response.status().as_u16()
-        )));
-    }
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_BODY_BYTES)
-    {
-        return Err(Error::Provider("provider response too large".into()));
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| Error::Provider("provider response read failed".into()))?
-    {
-        if bytes.len().saturating_add(chunk.len()) as u64 > MAX_BODY_BYTES {
-            return Err(Error::Provider("provider response too large".into()));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    serde_json::from_slice(&bytes)
-        .map_err(|_| Error::Provider("provider returned invalid JSON".into()))
+    let response = request.send().await.map_err(http::transport_error)?;
+    http::read_json(response).await
 }
 
 fn unwrap_backend(mut value: Value) -> Result<Value> {
     if value.get("success") == Some(&Value::Bool(false)) {
-        return Err(Error::Provider("backend rejected provider request".into()));
+        return Err(http::classify_envelope(&value));
     }
     if value.get("success") == Some(&Value::Bool(true))
         && let Some(data) = value.as_object_mut().and_then(|o| o.remove("data"))
@@ -426,90 +371,25 @@ fn mapped(args: &Value, pairs: &[(&str, &str)]) -> Value {
     }
     Value::Object(body)
 }
-fn parallel_request(request: &ExecuteToolRequest) -> Result<(String, Value)> {
+/// Maps an Exa tool onto the managed backend's Exa routes.
+///
+/// The backend's search route accepts only `{objective, searchQueries}` and
+/// fans the queries out itself; the other routes forward Exa's own request
+/// body, so they reuse the direct mapping.
+fn exa_request(request: &ExecuteToolRequest) -> Result<(String, Value)> {
     let args = &request.arguments;
-    let (path, mut body) = match request.name.as_str() {
-        "parallel_search" => {
-            required_string(args, "objective")?;
-            let mut body = mapped(
-                args,
-                &[
-                    ("objective", "objective"),
-                    ("search_queries", "searchQueries"),
-                    ("mode", "mode"),
-                ],
-            );
-            let excerpt = mapped(
-                args,
-                &[
-                    ("num_results", "numResults"),
-                    ("max_characters_per_excerpt", "maxCharactersPerExcerpt"),
-                ],
-            );
-            if excerpt.as_object().is_some_and(|o| !o.is_empty()) {
-                body["excerpts"] = excerpt;
-            }
-            ("search", body)
+    let (path, body) = match request.name.as_str() {
+        "exa_search" => {
+            let query = required_string(args, "query")?;
+            ("search", json!({"objective":query,"searchQueries":[query]}))
         }
-        "parallel_extract" => (
-            "extract",
-            mapped(
-                args,
-                &[
-                    ("urls", "urls"),
-                    ("objective", "objective"),
-                    ("excerpts", "excerpts"),
-                    ("full_content", "fullContent"),
-                ],
-            ),
-        ),
-        "parallel_chat" => (
-            "chat",
-            mapped(args, &[("model", "model"), ("messages", "messages")]),
-        ),
-        "parallel_research" => (
-            "research",
-            mapped(
-                args,
-                &[
-                    ("input", "input"),
-                    ("processor", "processor"),
-                    ("output_schema", "outputSchema"),
-                    ("timeout_seconds", "timeoutSeconds"),
-                ],
-            ),
-        ),
-        "parallel_enrich" => (
-            "enrich",
-            mapped(
-                args,
-                &[
-                    ("input", "input"),
-                    ("processor", "processor"),
-                    ("output_schema", "outputSchema"),
-                    ("timeout_seconds", "timeoutSeconds"),
-                ],
-            ),
-        ),
-        "parallel_dataset" => (
-            "dataset",
-            mapped(
-                args,
-                &[
-                    ("objective", "objective"),
-                    ("entity_type", "entityType"),
-                    ("match_conditions", "matchConditions"),
-                    ("generator", "generator"),
-                    ("match_limit", "matchLimit"),
-                ],
-            ),
-        ),
+        "exa_get_contents" | "exa_find_similar" | "exa_answer" => {
+            let (path, body) = direct::exa_body(request)?;
+            (path.trim_start_matches('/'), body)
+        }
         _ => return Err(Error::UnavailableTool(request.name.clone())),
     };
-    if request.name == "parallel_research" {
-        body["wait"] = json!(true);
-    }
-    Ok((format!("/agent-integrations/parallel/{path}"), body))
+    Ok((format!("/agent-integrations/exa/{path}"), body))
 }
 fn tinyfish_request(request: &ExecuteToolRequest) -> Result<(String, Value)> {
     let args = &request.arguments;
@@ -561,9 +441,10 @@ fn tinyfish_request(request: &ExecuteToolRequest) -> Result<(String, Value)> {
     Ok((format!("/agent-integrations/tinyfish/{path}"), body))
 }
 
+mod direct;
+mod http;
 mod normalize;
 use normalize::normalize;
-mod direct;
 
 #[cfg(test)]
 mod test;
