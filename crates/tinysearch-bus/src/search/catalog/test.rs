@@ -300,6 +300,23 @@ fn role_tool_schemas_are_generic() -> Result<(), String> {
 }
 
 #[test]
+fn deep_depth_is_not_advertised_without_deep_research() -> Result<(), String> {
+    let mut config = SearchConfig::default();
+    config
+        .providers
+        .insert("gemini".into(), keyed("google-key"));
+    let available = configured_provider_tools(&config, &provider_tool_specs());
+    let answer =
+        role_tool_specs(&available, &config.presentation, Role::Answer).ok_or("missing answer")?;
+    assert_eq!(
+        answer.parameters["properties"]["depth"],
+        json!({"type":"string","enum":["quick"],"default":"quick"})
+    );
+    assert!(!answer.description.contains("depth=\"deep\""));
+    Ok(())
+}
+
+#[test]
 fn deep_research_alone_serves_only_deep_answers() -> Result<(), String> {
     let mut config = SearchConfig::default();
     config
