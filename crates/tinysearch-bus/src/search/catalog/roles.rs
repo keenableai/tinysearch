@@ -126,7 +126,12 @@ pub fn role_tool_specs(
         Role::Answer => {
             let quick = providers.iter().any(|name| name != DEEP_RESEARCH);
             let deep = providers.iter().any(|name| name == DEEP_RESEARCH);
-            let depths: &[&str] = if quick { &["quick", "deep"] } else { &["deep"] };
+            // Advertise only the depths some usable provider can serve.
+            let depths: &[&str] = match (quick, deep) {
+                (true, true) => &["quick", "deep"],
+                (true, false) => &["quick"],
+                _ => &["deep"],
+            };
             let default_depth = if quick { "quick" } else { "deep" };
             let deep_note = if deep {
                 " depth=\"deep\" runs a longer multi-step research report and may return an \
