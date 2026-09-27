@@ -34,6 +34,7 @@ fn catalog_and_selection_are_stable() {
             "exa",
             "gemini",
             "gemini_deep_research",
+            "parallel",
             "querit",
             "searxng",
             "seltz",
@@ -43,24 +44,60 @@ fn catalog_and_selection_are_stable() {
     );
     assert_eq!(specs["tinyfish"].len(), 3);
     assert_eq!(specs["exa"].len(), 4);
+    assert_eq!(specs["parallel"].len(), 9);
     let all = PresentationConfig {
         mode: PresentationMode::AllTools,
         ..PresentationConfig::default()
     };
-    assert_eq!(select_tools(&specs, &all).tools.len(), 18);
+    assert_eq!(select_tools(&specs, &all).tools.len(), 27);
 }
 
 #[test]
-fn parallel_is_gone_from_every_table() {
+fn parallel_is_direct_only() {
     let specs = provider_tool_specs();
-    assert!(!specs.contains_key("parallel"));
-    assert!(!PROVIDERS.contains(&"parallel"));
+    assert!(PROVIDERS.contains(&"parallel"));
     assert!(!BACKEND_PROVIDERS.contains(&"parallel"));
-    assert!(provider_roles("parallel").is_empty());
     let mut config = SearchConfig::default();
     config.backend.credential = Some("secret".into());
     config.providers.insert("parallel".into(), backend_routed());
+    assert!(
+        configured_provider_tools(&config, &specs).is_empty(),
+        "a backend route never makes Parallel usable"
+    );
+    config.providers.insert("parallel".into(), keyed(" "));
     assert!(configured_provider_tools(&config, &specs).is_empty());
+    config
+        .providers
+        .insert("parallel".into(), keyed("parallel-key"));
+    let available = configured_provider_tools(&config, &specs);
+    assert_eq!(available["parallel"], specs["parallel"]);
+    let names: Vec<&str> = available["parallel"]
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect();
+    assert!(names.contains(&"parallel_dataset_status"));
+    let extract = &available["parallel"][1];
+    assert_eq!(extract.name, "parallel_extract");
+    assert!(extract.parameters["properties"].get("excerpts").is_none());
+    for role in Role::ALL {
+        assert_eq!(
+            role_providers(&available, &config.presentation, role),
+            ["parallel"]
+        );
+    }
+}
+
+#[test]
+fn findall_match_conditions_require_name_and_description() -> Result<(), String> {
+    let specs = provider_tool_specs();
+    let dataset = specs["parallel"]
+        .iter()
+        .find(|tool| tool.name == "parallel_dataset")
+        .ok_or("missing dataset tool")?;
+    let condition = &dataset.parameters["properties"]["match_conditions"]["items"];
+    assert_eq!(condition["required"], json!(["name", "description"]));
+    assert_eq!(condition["properties"]["description"]["minLength"], 1);
+    Ok(())
 }
 
 #[test]
@@ -84,10 +121,25 @@ fn every_provider_has_specs_roles_and_role_tools() {
 
 #[test]
 fn provider_roles_and_defaults_match_the_contract() {
+    for provider in ["exa", "parallel"] {
+        assert_eq!(
+            provider_roles(provider),
+            [Role::Search, Role::Answer, Role::Contents]
+        );
+    }
     assert_eq!(
-        provider_roles("exa"),
-        [Role::Search, Role::Answer, Role::Contents]
+        role_provider_tool(Role::Search, "parallel"),
+        Some("parallel_search")
     );
+    assert_eq!(
+        role_provider_tool(Role::Answer, "parallel"),
+        Some("parallel_chat")
+    );
+    assert_eq!(
+        role_provider_tool(Role::Contents, "parallel"),
+        Some("parallel_extract")
+    );
+    assert!(provider_roles("unknown").is_empty());
     assert_eq!(provider_roles("gemini"), [Role::Answer]);
     assert_eq!(provider_roles("gemini_deep_research"), [Role::Answer]);
     assert_eq!(provider_roles("tinyfish"), [Role::Search, Role::Contents]);
@@ -98,16 +150,31 @@ fn provider_roles_and_defaults_match_the_contract() {
     assert_eq!(
         default_role_providers(Role::Search),
         [
-            "exa", "brave", "tavily", "querit", "seltz", "searxng", "tinyfish"
+            "exa", "brave", "tavily", "parallel", "querit", "seltz", "searxng", "tinyfish"
         ]
     );
     assert_eq!(
         default_role_providers(Role::Answer),
-        ["gemini", "gemini_deep_research", "exa"]
+        ["gemini", "gemini_deep_research", "exa", "parallel"]
     );
     assert_eq!(
         default_role_providers(Role::Contents),
-        ["exa", "tavily", "tinyfish"]
+        ["exa", "tavily", "parallel", "tinyfish"]
+    );
+    assert_eq!(
+        PROVIDERS,
+        [
+            "exa",
+            "gemini",
+            "gemini_deep_research",
+            "tinyfish",
+            "parallel",
+            "brave",
+            "querit",
+            "tavily",
+            "seltz",
+            "searxng"
+        ]
     );
     assert_eq!(BACKEND_PROVIDERS, ["exa", "gemini", "tinyfish"]);
 }
@@ -125,7 +192,7 @@ fn searxng_categories_match_supported_execution_values() {
 fn direct_tools_require_a_nonempty_private_credential() {
     let specs = provider_tool_specs();
     let mut config = SearchConfig::default();
-    for name in ["exa", "brave", "querit", "tavily", "seltz"] {
+    for name in ["exa", "parallel", "brave", "querit", "tavily", "seltz"] {
         config.providers.insert(name.into(), keyed("  "));
     }
     assert!(configured_provider_tools(&config, &specs).is_empty());
@@ -134,6 +201,7 @@ fn direct_tools_require_a_nonempty_private_credential() {
     }
     let available = configured_provider_tools(&config, &specs);
     assert_eq!(available["exa"].len(), 4);
+    assert_eq!(available["parallel"].len(), 9);
     assert_eq!(available["brave"].len(), 4);
     assert_eq!(available["querit"].len(), 1);
     assert_eq!(available["tavily"].len(), 2);

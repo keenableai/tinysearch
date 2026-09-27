@@ -1,7 +1,7 @@
 //! Direct Parallel request mapping, async resume, and catalog tests.
+use super::super::super::builtins;
 use super::*;
 use crate::{BackendConfig, PresentationMode, ProviderRoute, SearchConfig, SearchService};
-use super::super::super::builtins;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -99,8 +99,8 @@ async fn search_maps_current_schema_and_bounds_results()
 }
 
 #[tokio::test]
-async fn extract_and_chat_use_direct_paths()
--> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn extract_and_chat_use_direct_paths() -> std::result::Result<(), Box<dyn std::error::Error>>
+{
     let (url, server) = mock(vec![(
         200,
         json!({"results":[{"url":"https://example.org","full_content":"body"}]}),
@@ -435,11 +435,20 @@ async fn missing_credential_and_unknown_operations_fail_closed()
     .err()
     .ok_or("keyless call must fail")?;
     assert!(error.to_string().contains("credential"));
-    assert!(prepare(&ProviderConfig::default(), &request("parallel_unknown", json!({}))).is_err());
+    assert!(
+        prepare(
+            &ProviderConfig::default(),
+            &request("parallel_unknown", json!({}))
+        )
+        .is_err()
+    );
     assert!(matches!(
         prepare(
             &ProviderConfig::default(),
-            &request("parallel_extract", json!({"urls":["https://a.test"],"excerpts":false}))
+            &request(
+                "parallel_extract",
+                json!({"urls":["https://a.test"],"excerpts":false})
+            )
         ),
         Err(Error::Provider(_))
     ));
