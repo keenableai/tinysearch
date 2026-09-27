@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepared> {
-    let (path, body) = request_body(request)?;
+    let (path, body) = exa_body(request)?;
     Ok((
         Method::POST,
         "https://api.exa.ai",
