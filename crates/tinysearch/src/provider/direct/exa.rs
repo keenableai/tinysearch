@@ -18,7 +18,7 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
 }
 
 /// Builds Exa's own request path and body for an Exa tool.
-pub(super) fn request_body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
+pub(super) fn exa_body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
     let args = &request.arguments;
     let (path, mut body) = match request.name.as_str() {
         "exa_search" => (
