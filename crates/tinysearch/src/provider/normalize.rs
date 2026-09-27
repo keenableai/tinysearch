@@ -133,8 +133,10 @@ fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
             }
         }
     }
-    order.extend((0..chunks.len()).filter(|index| !order.contains(index)));
-    for index in order {
+    let unreferenced: Vec<usize> = (0..chunks.len())
+        .filter(|index| !order.contains(index))
+        .collect();
+    for index in order.into_iter().chain(unreferenced) {
         if let Some(web) = chunks[index].get("web")
             && let Some(url) = web.get("uri").and_then(Value::as_str)
         {
