@@ -65,6 +65,10 @@ fn add_citation(citations: &mut Vec<Citation>, url: &str, title: Option<&str>) {
 }
 fn answer_for(tool: &str, value: &Value) -> Option<String> {
     match tool {
+        "parallel_chat" => value
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .map(|s| clipped(s, MAX_ANSWER_CHARS)),
         "gemini_agentic_search" => gemini_text(value),
         "gemini_deep_research" => value
             .get("steps")
@@ -77,7 +81,13 @@ fn answer_for(tool: &str, value: &Value) -> Option<String> {
             .and_then(Value::as_str)
             .or_else(|| value.get("output_text").and_then(Value::as_str))
             .map(|s| clipped(s, MAX_ANSWER_CHARS)),
-        "tinyfish_agent_run" => value
+        "parallel_research"
+        | "parallel_enrich"
+        | "parallel_dataset"
+        | "parallel_research_status"
+        | "parallel_enrich_status"
+        | "parallel_dataset_status"
+        | "tinyfish_agent_run" => value
             .get("result")
             .or_else(|| value.get("output"))
             .map(|v| clipped(v.as_str().unwrap_or(&v.to_string()), MAX_ANSWER_CHARS)),
@@ -252,6 +262,7 @@ pub(super) fn normalize(provider: &str, tool: &str, value: &Value) -> ExecuteToo
         "runId",
         "searchId",
         "run_id",
+        "findall_id",
         "search_id",
         "extract_id",
         "status",
