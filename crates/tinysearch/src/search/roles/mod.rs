@@ -162,7 +162,12 @@ fn downgrade_unservable_depth(role: Role, spec: &ToolSpec, arguments: &mut Value
     let servable = advertised
         .as_array()
         .is_some_and(|depths| depths.iter().any(|d| d.as_str() == Some(depth)));
-    if !servable {
+    // Only the stale-`deep` case is downgraded. Any other unservable value
+    // (an explicit `quick` that Deep Research alone cannot serve, or an
+    // unrecognized string) is left for `validate_arguments` to reject, so a
+    // caller's incompatible request is never silently promoted to Deep
+    // Research.
+    if !servable && depth == "deep" {
         args.remove("depth");
     }
 }
