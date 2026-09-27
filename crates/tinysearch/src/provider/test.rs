@@ -1347,3 +1347,188 @@ async fn direct_rejects_backend_route_and_redacts_upstream_error() -> TestResult
     assert!(!error.to_string().contains("exa-secret"));
     Ok(())
 }
+
+#[test]
+fn normalization_handles_gemini_agentic_search_answers() {
+    let response = normalize(
+        "gemini",
+        "gemini_agentic_search",
+        &json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "grounded answer"}
+                        ]
+                    }
+                }
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("grounded answer".to_string()));
+    assert_eq!(response.status, SearchStatus::Ok);
+}
+
+#[test]
+fn normalization_handles_gemini_deep_research_answers() {
+    let response = normalize(
+        "gemini",
+        "gemini_deep_research",
+        &json!({
+            "steps": [
+                {"content": [{"text": "step 1"}]},
+                {"content": [{"text": "final answer"}]}
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("final answer".to_string()));
+    assert_eq!(response.status, SearchStatus::Ok);
+}
+
+#[test]
+fn normalization_handles_tinyfish_agent_run_results() {
+    let response = normalize(
+        "tinyfish",
+        "tinyfish_agent_run",
+        &json!({"result": "agent result"}),
+    );
+    assert_eq!(response.answer, Some("agent result".to_string()));
+}
+
+#[test]
+fn normalization_handles_tinyfish_fetch_results() {
+    let response = normalize(
+        "tinyfish",
+        "tinyfish_fetch",
+        &json!({
+            "results": [
+                {"text": "fetched content"}
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("fetched content".to_string()));
+}
+
+#[test]
+fn normalization_processes_grounding_citations() {
+    let response = normalize(
+        "gemini",
+        "gemini_agentic_search",
+        &json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "grounded answer"}
+                        ]
+                    },
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            {"web": {"uri": "https://example.com", "title": "Example"}}
+                        ],
+                        "groundingSupports": [
+                            {"groundingChunkIndices": [0]}
+                        ]
+                    }
+                }
+            ]
+        }),
+    );
+    assert!(response.citations.iter().any(|c| c.url == "https://example.com"));
+}
+
+#[test]
+fn normalization_handles_basis_citations() {
+    let response = normalize(
+        "gemini",
+        "gemini_search",
+        &json!({
+            "basis": [
+                {"url": "https://basis.com", "title": "Basis Source"}
+            ]
+        }),
+    );
+    assert!(response.citations.iter().any(|c| c.url == "https://basis.com"));
+}
+
+#[test]
+fn normalization_handles_steps_with_annotations() {
+    let response = normalize(
+        "gemini",
+        "gemini_deep_research",
+        &json!({
+            "steps": [
+                {
+                    "content": [
+                        {
+                            "text": "step content",
+                            "annotations": [
+                                {"url": "https://annotated.com", "title": "Annotation"}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }),
+    );
+    assert!(response.citations.iter().any(|c| c.url == "https://annotated.com"));
+}
+
+#[test]
+fn normalization_clips_large_answers() {
+    let large_text = "a".repeat(100000);
+    let response = normalize(
+        "tavily",
+        "tavily_search",
+        &json!({"answer": large_text}),
+    );
+    assert!(response.answer.as_ref().map(|a| a.len()).unwrap_or(0) <= 16384);
+}
+
+#[test]
+fn normalization_preserves_result_count_limit() {
+    let items: Vec<_> = (0..100)
+        .map(|i| json!({"url": format!("https://test.com/{i}"), "title": format!("Result {i}")}))
+        .collect();
+    let response = normalize("exa", "exa_search", &json!({"results": items}));
+    assert!(response.results.len() <= 20);
+}
+
+#[test]
+fn normalization_handles_null_segments_in_gemini() {
+    let response = normalize(
+        "gemini",
+        "gemini_agentic_search",
+        &json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "answer", "thought": true},
+                            {"text": "visible"},
+                            null
+                        ]
+                    }
+                }
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("visible".to_string()));
+}
+
+#[test]
+fn normalization_includes_all_metadata_fields() {
+    let response = normalize(
+        "gemini",
+        "gemini_deep_research",
+        &json!({
+            "id": "run123",
+            "status": "completed",
+            "costUsd": 0.5,
+            "num_of_steps": 3
+        }),
+    );
+    assert!(response.provider_data.is_some());
+    let data = response.provider_data.unwrap();
+    assert_eq!(data.get("id"), Some(&json!("run123")));
+}
