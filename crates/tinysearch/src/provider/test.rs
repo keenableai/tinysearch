@@ -1539,9 +1539,11 @@ fn normalization_includes_all_metadata_fields() {
             "num_of_steps": 3
         }),
     );
-    assert!(response
-        .provider_data
-        .as_ref()
-        .and_then(|data| data.get("id"))
-        .is_some_and(|v| v == &json!("run123")));
+    assert!(
+        response
+            .provider_data
+            .as_ref()
+            .and_then(|data| data.get("id"))
+            .is_some_and(|v| v == &json!("run123"))
+    );
 }
