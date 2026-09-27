@@ -92,8 +92,16 @@ fn builtins_discover_and_reinitialize_from_private_configuration() {
 #[tokio::test]
 async fn classified_failures_cross_the_bus_with_their_code() -> tinybus::Result<()> {
     let mut config = SearchConfig::default();
-    // Nothing listens on port 1, so the backend call fails in transport.
-    config.backend.base_url = Some("http://127.0.0.1:1".into());
+    // A local listener that closes every connection without answering, so
+    // the backend call deterministically fails in transport.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    let refuser = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            drop(stream);
+        }
+    });
+    config.backend.base_url = Some(format!("http://127.0.0.1:{port}"));
     config.backend.credential = Some("private".into());
     config.providers.insert(
         "tinyfish".into(),
@@ -137,5 +145,6 @@ async fn classified_failures_cross_the_bus_with_their_code() -> tinybus::Result<
         Some(errors::INVALID_ARGUMENTS),
         "{invalid}"
     );
+    refuser.abort();
     Ok(())
 }

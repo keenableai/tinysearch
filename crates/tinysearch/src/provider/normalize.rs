@@ -113,30 +113,39 @@ fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
     let Some(chunks) = metadata.get("groundingChunks").and_then(Value::as_array) else {
         return;
     };
-    let mut order: Vec<usize> = Vec::new();
-    for support in metadata
+    // Only MAX_CITATIONS can be emitted, so stop collecting once that many
+    // distinct chunks are ordered: work stays bounded however large the
+    // grounding payload is, and `seen` keeps deduplication linear.
+    let mut seen = vec![false; chunks.len()];
+    let mut order: Vec<usize> = Vec::with_capacity(MAX_CITATIONS);
+    let referenced = metadata
         .get("groundingSupports")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-    {
-        for index in support
-            .get("groundingChunkIndices")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_u64)
-            .filter_map(|index| usize::try_from(index).ok())
-        {
-            if index < chunks.len() && !order.contains(&index) {
-                order.push(index);
-            }
+        .flat_map(|support| {
+            support
+                .get("groundingChunkIndices")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(Value::as_u64)
+        .filter_map(|index| usize::try_from(index).ok());
+    // Then the chunks no support referenced, in document order.
+    for index in referenced.chain(0..chunks.len()) {
+        if order.len() >= MAX_CITATIONS {
+            break;
+        }
+        if index < chunks.len() && !seen[index] {
+            seen[index] = true;
+            order.push(index);
         }
     }
-    let unreferenced: Vec<usize> = (0..chunks.len())
-        .filter(|index| !order.contains(index))
-        .collect();
-    for index in order.into_iter().chain(unreferenced) {
+    for index in order {
+        if citations.len() >= MAX_CITATIONS {
+            break;
+        }
         if let Some(web) = chunks[index].get("web")
             && let Some(url) = web.get("uri").and_then(Value::as_str)
         {
