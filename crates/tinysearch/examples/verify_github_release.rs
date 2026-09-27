@@ -29,7 +29,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &release_url,
         &archive,
         Some(&sha256),
-        serde_json::Value::default(),
+        // An empty object, not `null`: `SearchConfig` deserializes from an
+        // object, and its defaults (no providers) are enough to serve
+        // `ListTools`.
+        serde_json::json!({}),
     )?;
 
     if info.name != env!("CARGO_PKG_NAME") {
