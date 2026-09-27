@@ -187,14 +187,13 @@ async fn router_never_dispatches_search_to_a_non_search_provider() {
     .into();
     let service = SearchService::with_providers(config, providers);
     assert!(service.list_tools().tools.is_empty());
-    let error = service
+    let result = service
         .execute_tool(ExecuteToolRequest {
             name: "search".into(),
             arguments: json!({"query":"rust"}),
         })
-        .await
-        .unwrap_err();
-    assert!(matches!(error, Error::UnavailableTool(name) if name == "search"));
+        .await;
+    assert_eq!(result.err(), Some(Error::UnavailableTool("search".into())));
 }
 #[tokio::test]
 async fn rejects_unadvertised_tool_and_invalid_arguments() {
