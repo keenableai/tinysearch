@@ -357,15 +357,14 @@ async fn explicit_quick_depth_is_rejected_when_only_deep_research_is_usable() {
         config.providers.remove("gemini");
         config.providers.remove("exa");
     });
-    let error = fixture
+    let result = fixture
         .service
         .execute_tool(call(
             tools::WEB_ANSWER,
             json!({"query":"why","depth":"quick"}),
         ))
-        .await
-        .unwrap_err();
-    assert!(matches!(error, Error::InvalidArguments));
+        .await;
+    assert_eq!(result.err(), Some(Error::InvalidArguments));
     assert!(fixture.calls("gemini_deep_research").is_empty());
 }
 
