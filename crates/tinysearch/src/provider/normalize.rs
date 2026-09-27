@@ -130,9 +130,14 @@ fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
         return;
     };
     // Only MAX_CITATIONS can be emitted, so stop collecting once that many
-    // distinct chunks are ordered: work stays bounded however large the
-    // grounding payload is, and `seen` keeps deduplication linear.
-    let mut seen = vec![false; chunks.len()];
+    // distinct chunks are ordered. Beyond bounding the *output*, cap how much
+    // of the provider-controlled *input* is ever examined: `seen` is sized to
+    // (and indices are drawn from) at most `MAX_GROUNDING_CHUNKS` chunks, and
+    // the referenced-index scan is capped at the same count, so an
+    // oversized `groundingChunks`/`groundingSupports` payload cannot force
+    // allocation or traversal proportional to its own size.
+    let chunk_count = chunks.len().min(MAX_GROUNDING_CHUNKS);
+    let mut seen = vec![false; chunk_count];
     let mut order: Vec<usize> = Vec::with_capacity(MAX_CITATIONS);
     let referenced = metadata
         .get("groundingSupports")
@@ -147,7 +152,8 @@ fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
                 .flatten()
         })
         .filter_map(Value::as_u64)
-        .filter_map(|index| usize::try_from(index).ok());
+        .filter_map(|index| usize::try_from(index).ok())
+        .take(MAX_GROUNDING_CHUNKS);
     // A chunk without a usable web URI never becomes a citation (see below),
     // so it must not consume an ordering slot that a later, usable chunk
     // could otherwise fill. Nor should a chunk whose URL duplicates one
