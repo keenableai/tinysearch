@@ -30,7 +30,7 @@ pub(super) async fn read_json(mut response: reqwest::Response) -> Result<Value> 
         .content_length()
         .is_some_and(|length| length > MAX_BODY_BYTES)
     {
-        return Err(Error::Provider("provider response too large".into()));
+        return Err(Error::ProviderUnavailable("provider response too large".into()));
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response
