@@ -20,7 +20,7 @@ impl SearchBusService {
         self.0
             .execute_tool(request)
             .await
-            .map_err(|error| tinybus::Error::failed(error.to_string()))
+            .map_err(|error| tinybus::Error::failed(error.bus_message()))
     }
 }
 
