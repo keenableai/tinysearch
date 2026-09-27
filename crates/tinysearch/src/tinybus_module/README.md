@@ -7,6 +7,7 @@ routing and does not log credentials, arguments, or results.
 
 The built-in registry serves every provider in `tinysearch_bus::PROVIDERS`.
 `ListTools` filters them by enabled state, route, and credential availability
-on every initialization or reinitialization. Failed calls carry
+on every initialization or reinitialization. Parallel runs only on the direct
+route with the user's own key; a backend route never lists it. Failed calls carry
 `Error::bus_message`, which prefixes classified failures with
 `tinysearch.<code>: `.

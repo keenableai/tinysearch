@@ -18,9 +18,9 @@ role that has at least one usable provider:
 
 | Role | Tool | Arguments | Providers (default order) |
 | --- | --- | --- | --- |
-| `search` | `web_search_tool` | `query`, `max_results?` (1-20), `provider?` | exa, brave, tavily, querit, seltz, searxng, tinyfish |
-| `answer` | `web_answer_tool` | `query`, `depth?` (`quick` or `deep`), `provider?` | gemini, gemini_deep_research, exa |
-| `contents` | `web_contents_tool` | `urls` (1-10), `query?`, `provider?` | exa, tavily, tinyfish |
+| `search` | `web_search_tool` | `query`, `max_results?` (1-20), `provider?` | exa, brave, tavily, parallel, querit, seltz, searxng, tinyfish |
+| `answer` | `web_answer_tool` | `query`, `depth?` (`quick` or `deep`), `provider?` | gemini, gemini_deep_research, exa, parallel |
+| `contents` | `web_contents_tool` | `urls` (1-10), `query?`, `provider?` | exa, tavily, parallel, tinyfish |
 
 `presentation.roles` sets an ordered provider list per role; an absent or empty
 list uses the default order above. The first usable provider answers. When it
@@ -31,6 +31,8 @@ failed before the one that answered. An explicit `provider` argument pins the
 call to that provider with no fallback; its schema enum lists the usable
 providers. `depth: "deep"` prefers Gemini Deep Research, which serves only deep
 answers, and falls back to the grounded answer providers; `quick` never uses it.
+Parallel serves only quick answers, so a `deep` call skips it, and pinning
+`provider: "parallel"` with `depth: "deep"` is rejected as invalid arguments.
 
 `all_tools` exposes every available provider tool, `one_provider` exposes one
 provider's tools, and `router` exposes one `search` tool that runs the chosen
@@ -93,6 +95,24 @@ chunks that `groundingSupports` reference first, then the rest.
 be resumed with `interaction_id` when the bounded poll returns `in_progress`.
 Direct Google calls never receive backend attribution or credentials. TinyFish
 uses the managed backend route only.
+
+Parallel is bring-your-own-key only: there is no managed Parallel, so it is not
+in `BACKEND_PROVIDERS`, and a `route: "backend"` entry leaves it unavailable
+even with a backend credential. With `route: "direct"`, its own credential and
+an optional `base_url`, it offers `parallel_search`, `parallel_extract`,
+`parallel_chat`, `parallel_research`, `parallel_enrich`, and `parallel_dataset`.
+Requests send `x-api-key` to Parallel's `/v1/search`, `/v1/extract`,
+`/v1beta/chat/completions`, `/v1/tasks/runs`, and `/v1beta/findall/runs`.
+Research and enrichment create Task runs and dataset creates a FindAll run;
+they return `in_progress` with `run_id` or `findall_id` in `provider_data`.
+`parallel_research_status`, `parallel_enrich_status`, and
+`parallel_dataset_status` take that ID, check the run, and fetch completed
+results. Every call has a bounded timeout. The search schema lists Parallel's
+current modes (`turbo`, `fast`, `basic`, `advanced`). In roles mode Parallel
+serves search (`query` becomes the `objective` and the single entry of
+`search_queries`; `max_results` becomes `num_results`), quick answers
+(`parallel_chat` with the `speed` model and the query as the user message),
+and contents (`urls`, with `query` as the `objective` and `full_content` on).
 
 Brave web, news, image, and video search, Querit search, and Tavily search and
 extract use `route: "direct"` with a provider credential. Their `base_url` can

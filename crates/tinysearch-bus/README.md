@@ -16,5 +16,9 @@ presents one tool per role, named by `role_tool_name`. `provider_roles`,
 role and in which order; `PresentationConfig.roles` overrides the order.
 `ExecuteToolResponse.role` and `fallback_from` report how a role call was
 served. `PROVIDERS` lists every provider and `BACKEND_PROVIDERS` those with a
-managed backend route. The `errors` module holds the stable failure codes
+managed backend route. Parallel is in `PROVIDERS` but not `BACKEND_PROVIDERS`:
+it is bring-your-own-key only, and `configured_provider_tools` never makes it
+usable on `ProviderRoute::Backend`. It serves the search, answer (quick only),
+and contents roles through `parallel_search`, `parallel_chat`, and
+`parallel_extract`. The `errors` module holds the stable failure codes
 carried in bus error messages and `code_of` to read them.
