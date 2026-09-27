@@ -11,8 +11,9 @@ pub use error::{Error, Result};
 pub use search::{ProviderFuture, SearchProvider, SearchService};
 pub use tinysearch_bus;
 pub use tinysearch_bus::{
-    BackendAuthMode, BackendConfig, CONTRACT_VERSION, Citation, ExecuteToolRequest,
-    ExecuteToolResponse, INTERFACE, ListToolsResponse, METHODS, OBJECT_PATH, PresentationConfig,
-    PresentationMode, ProviderConfig, ProviderRoute, SearchConfig, SearchResult, SearchStatus,
-    ToolSpec, is_compatible, names, version,
+    BACKEND_PROVIDERS, BackendAuthMode, BackendConfig, CONTRACT_VERSION, Citation,
+    ExecuteToolRequest, ExecuteToolResponse, INTERFACE, ListToolsResponse, METHODS, OBJECT_PATH,
+    PROVIDERS, PresentationConfig, PresentationMode, ProviderConfig, ProviderRoute, Role,
+    SearchConfig, SearchResult, SearchStatus, ToolSpec, default_role_providers, errors,
+    is_compatible, names, provider_roles, role_tool_name, version,
 };
