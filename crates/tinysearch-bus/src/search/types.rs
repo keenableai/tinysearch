@@ -135,12 +135,51 @@ impl fmt::Debug for ProviderConfig {
     }
 }
 
+/// A capability a provider can serve, presented to the model as one tool.
+///
+/// Each role is backed by an ordered list of providers: the first usable one
+/// answers and the rest are fallbacks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    /// Ranked web results (links with snippets) for a query.
+    Search,
+    /// A synthesized answer to a question, grounded in cited web sources.
+    Answer,
+    /// The readable contents of specific URLs.
+    Contents,
+}
+
+impl Role {
+    /// Every role, in presentation order.
+    pub const ALL: [Self; 3] = [Self::Search, Self::Answer, Self::Contents];
+
+    /// The stable wire name of the role, as it appears in configuration.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Search => "search",
+            Self::Answer => "answer",
+            Self::Contents => "contents",
+        }
+    }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// How provider tools appear to the host.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PresentationMode {
-    /// One tool for each available provider.
+    /// One generic tool per [`Role`] that has at least one usable provider,
+    /// dispatched across the role's ordered provider list with fallback.
     #[default]
+    Roles,
+    /// One tool for each available provider.
     AllTools,
     /// One router tool with an optional provider argument.
     Router,
@@ -156,6 +195,11 @@ pub struct PresentationConfig {
     pub mode: PresentationMode,
     /// Provider selected for `one_provider`, or router default.
     pub provider: Option<String>,
+    /// Ordered provider list per role for `roles` mode: the first usable
+    /// provider answers and the rest are fallbacks. An absent or empty role
+    /// uses [`default_role_providers`](crate::default_role_providers).
+    #[serde(default)]
+    pub roles: BTreeMap<Role, Vec<String>>,
 }
 
 /// Tool declaration returned by `ListTools`.
@@ -236,4 +280,11 @@ pub struct ExecuteToolResponse {
     /// Optional provider-specific data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_data: Option<Value>,
+    /// Role served, when the call was a role tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
+    /// Providers tried before the one that answered, in order. Each failed
+    /// with a fallback-eligible error (see [`errors`](crate::errors)).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback_from: Vec<String>,
 }
