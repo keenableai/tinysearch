@@ -11,6 +11,11 @@ const MAX_RESULTS: usize = 20;
 const MAX_CITATIONS: usize = 40;
 const MAX_ANSWER_CHARS: usize = 12_000;
 const MAX_BODY_BYTES: u64 = 2_000_000;
+/// Upper bound on how many Gemini grounding chunks/support entries are ever
+/// examined when selecting citations, independent of `MAX_CITATIONS`. Keeps
+/// traversal and the `seen` tracking allocation bounded even against an
+/// oversized `groundingChunks`/`groundingSupports` provider payload.
+const MAX_GROUNDING_CHUNKS: usize = 200;
 
 #[derive(Debug)]
 struct BuiltinProvider {
