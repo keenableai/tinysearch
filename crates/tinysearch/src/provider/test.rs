@@ -1539,6 +1539,12 @@ fn normalization_includes_all_metadata_fields() {
             "num_of_steps": 3
         }),
     );
-    let data = response.provider_data.expect("expected provider_data");
-    assert_eq!(data.get("id"), Some(&json!("run123")));
+    assert!(response.provider_data.is_some());
+    let is_run123 = response
+        .provider_data
+        .as_ref()
+        .and_then(|data| data.get("id"))
+        .map(|v| v == &json!("run123"))
+        .unwrap_or(false);
+    assert!(is_run123);
 }
