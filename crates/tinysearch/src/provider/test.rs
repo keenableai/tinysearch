@@ -1547,3 +1547,71 @@ fn normalization_includes_all_metadata_fields() {
             .is_some_and(|v| v == &json!("run123"))
     );
 }
+
+#[test]
+fn http_classification_recognizes_insufficient_balance_code() {
+    let error = super::http::classify_status(402, b"");
+    assert_eq!(error, Error::InsufficientBalance);
+    let error = super::http::classify_status(432, b"");
+    assert_eq!(error, Error::InsufficientBalance);
+}
+
+#[test]
+fn http_classification_recognizes_rate_limit() {
+    let error = super::http::classify_status(429, b"");
+    assert_eq!(error, Error::RateLimited);
+}
+
+#[test]
+fn http_classification_categorizes_invalid_arguments() {
+    let error = super::http::classify_status(400, b"");
+    assert!(matches!(error, Error::RejectedArguments(_)));
+    let error = super::http::classify_status(422, b"");
+    assert!(matches!(error, Error::RejectedArguments(_)));
+}
+
+#[test]
+fn http_classification_categorizes_unavailable() {
+    let error = super::http::classify_status(408, b"");
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+    let error = super::http::classify_status(500, b"");
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+    let error = super::http::classify_status(503, b"");
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+}
+
+#[test]
+fn http_classification_categorizes_other_errors() {
+    let error = super::http::classify_status(403, b"");
+    assert!(matches!(error, Error::Provider(_)));
+}
+
+#[test]
+fn http_classification_reads_backend_error_codes() {
+    let body = json!({"errorCode": "USER_INSUFFICIENT_CREDITS"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+
+    let body = json!({"error": {"code": "RATE_LIMITED"}}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::RateLimited);
+
+    let body = json!({"code": "UPSTREAM_UNAVAILABLE"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+}
+
+#[test]
+fn http_classification_reads_error_messages() {
+    let body = json!({"message": "insufficient balance"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+
+    let body = json!({"error": {"message": "insufficient credits"}}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+
+    let body = json!({"error": "insufficient budget"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+}
