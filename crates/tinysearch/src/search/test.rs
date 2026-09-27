@@ -180,8 +180,11 @@ async fn router_never_dispatches_search_to_a_non_search_provider() {
             ..ProviderConfig::default()
         },
     );
-    let providers: BTreeMap<String, Arc<dyn SearchProvider>> =
-        [("gemini".into(), Arc::new(MockProvider) as Arc<dyn SearchProvider>)].into();
+    let providers: BTreeMap<String, Arc<dyn SearchProvider>> = [(
+        "gemini".into(),
+        Arc::new(MockProvider) as Arc<dyn SearchProvider>,
+    )]
+    .into();
     let service = SearchService::with_providers(config, providers);
     assert!(service.list_tools().tools.is_empty());
     let error = service
