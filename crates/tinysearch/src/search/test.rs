@@ -165,6 +165,35 @@ async fn router_defaults_to_the_first_search_role_provider() -> crate::Result<()
     Ok(())
 }
 #[tokio::test]
+async fn router_never_dispatches_search_to_a_non_search_provider() {
+    // `gemini` only serves `Role::Answer`. With no Search-role provider
+    // configured, Router must refuse "search" rather than fall back to
+    // gemini's Answer tool (see `execute_router`'s provider selection and the
+    // matching `PresentationMode::Router` catalog guard).
+    let mut config = SearchConfig::default();
+    config.presentation.mode = PresentationMode::Router;
+    config.backend.credential = Some("test-key".into());
+    config.providers.insert(
+        "gemini".into(),
+        ProviderConfig {
+            route: ProviderRoute::Backend,
+            ..ProviderConfig::default()
+        },
+    );
+    let providers: BTreeMap<String, Arc<dyn SearchProvider>> =
+        [("gemini".into(), Arc::new(MockProvider) as Arc<dyn SearchProvider>)].into();
+    let service = SearchService::with_providers(config, providers);
+    assert!(service.list_tools().tools.is_empty());
+    let error = service
+        .execute_tool(ExecuteToolRequest {
+            name: "search".into(),
+            arguments: json!({"query":"rust"}),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(error, Error::UnavailableTool(_) | Error::MissingProvider));
+}
+#[tokio::test]
 async fn rejects_unadvertised_tool_and_invalid_arguments() {
     let service = service(PresentationMode::AllTools);
     assert_eq!(
