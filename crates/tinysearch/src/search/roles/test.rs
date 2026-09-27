@@ -10,8 +10,11 @@ type Calls = Arc<Mutex<Vec<ExecuteToolRequest>>>;
 /// Records every request and answers with a scripted outcome.
 struct Scripted {
     calls: Calls,
-    outcome: fn() -> Result<ExecuteToolResponse>,
+    failure: Option<Failure>,
 }
+
+/// Builds the error a scripted provider fails with.
+type Failure = fn() -> Error;
 
 impl SearchProvider for Scripted {
     fn execute<'a>(
@@ -23,13 +26,15 @@ impl SearchProvider for Scripted {
         if let Ok(mut calls) = self.calls.lock() {
             calls.push(request.clone());
         }
-        let outcome = (self.outcome)();
+        let outcome = self
+            .failure
+            .map_or_else(|| Ok(ok()), |failure| Err(failure()));
         Box::pin(async move { outcome })
     }
 }
 
-fn ok() -> Result<ExecuteToolResponse> {
-    Ok(ExecuteToolResponse {
+fn ok() -> ExecuteToolResponse {
+    ExecuteToolResponse {
         provider: "ignored".into(),
         results: vec![],
         citations: vec![],
@@ -38,23 +43,19 @@ fn ok() -> Result<ExecuteToolResponse> {
         provider_data: None,
         role: None,
         fallback_from: vec![],
-    })
+    }
 }
-fn broke() -> Result<ExecuteToolResponse> {
-    Err(Error::InsufficientBalance)
+fn broke() -> Error {
+    Error::InsufficientBalance
 }
-fn throttled() -> Result<ExecuteToolResponse> {
-    Err(Error::RateLimited)
+fn throttled() -> Error {
+    Error::RateLimited
 }
-fn down() -> Result<ExecuteToolResponse> {
-    Err(Error::ProviderUnavailable(
-        "provider returned HTTP 503".into(),
-    ))
+fn down() -> Error {
+    Error::ProviderUnavailable("provider returned HTTP 503".into())
 }
-fn rejected() -> Result<ExecuteToolResponse> {
-    Err(Error::RejectedArguments(
-        "provider returned HTTP 400".into(),
-    ))
+fn rejected() -> Error {
+    Error::RejectedArguments("provider returned HTTP 400".into())
 }
 
 struct Fixture {
@@ -71,10 +72,10 @@ impl Fixture {
     }
 }
 
-/// Exa, Gemini and TinyFish on the backend; Brave, Tavily and Deep Research
+/// Exa, Gemini and `TinyFish` on the backend; Brave, Tavily and Deep Research
 /// with direct keys. Each provider answers with its scripted outcome.
 fn fixture(
-    outcomes: &[(&'static str, fn() -> Result<ExecuteToolResponse>)],
+    outcomes: &[(&'static str, Failure)],
     configure: impl FnOnce(&mut SearchConfig),
 ) -> Fixture {
     let mut config = SearchConfig::default();
@@ -108,17 +109,17 @@ fn fixture(
         "tavily",
         "gemini_deep_research",
     ] {
-        let outcome = outcomes
+        let failure = outcomes
             .iter()
             .find(|(provider, _)| *provider == name)
-            .map_or(ok as fn() -> _, |(_, outcome)| *outcome);
+            .map(|(_, failure)| *failure);
         let recorded = Calls::default();
         calls.insert(name, recorded.clone());
         providers.insert(
             name.into(),
             Arc::new(Scripted {
                 calls: recorded,
-                outcome,
+                failure,
             }),
         );
     }
