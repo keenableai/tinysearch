@@ -158,5 +158,7 @@ fn normalize(value: &Value, max_results: usize) -> ExecuteToolResponse {
         answer: None,
         status,
         provider_data: Some(json!({"sources":sources})),
+        role: None,
+        fallback_from: Vec::new(),
     }
 }
