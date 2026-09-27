@@ -287,7 +287,8 @@ fn role_tool_schemas_are_generic() -> Result<(), String> {
     assert_eq!(answer.parameters["required"], json!(["query"]));
     assert_eq!(
         answer.parameters["properties"]["depth"],
-        json!({"type":"string","enum":["quick","deep"],"default":"quick"})
+        json!({"type":"string","enum":["quick"],"default":"quick"}),
+        "no deep-research provider is configured here"
     );
 
     let contents = role_tool_specs(&available, &config.presentation, Role::Contents)
