@@ -36,6 +36,13 @@ impl SearchService {
             .ok_or(Error::InvalidArguments)?;
         let usable = role_providers(available, &self.config.presentation, role);
         let explicit = args.get("provider").and_then(Value::as_str);
+        if role == Role::Answer && explicit == Some(DEEP_RESEARCH) {
+            let depth = args.get("depth").and_then(Value::as_str);
+            let only_deep = usable.iter().all(|name| name == DEEP_RESEARCH);
+            if depth == Some("quick") || (depth.is_none() && !only_deep) {
+                return Err(Error::InvalidArguments);
+            }
+        }
         let candidates = match explicit {
             Some(provider) => vec![provider.to_owned()],
             None if role == Role::Answer => answer_order(usable, args),
