@@ -59,7 +59,7 @@ pub(super) fn exa_body(request: &ExecuteToolRequest) -> Result<(&'static str, Va
             ("include_summary", "summary"),
             ("include_highlights", "highlights"),
         ] {
-            if args.get(src) == Some(&Value::Bool(true)) {
+            if args.get(src) == Some(&Value::Bool(true)) && body.get(dst).is_none() {
                 body[dst] = json!(true);
             }
         }
