@@ -39,7 +39,7 @@ pub(super) async fn read_json(mut response: reqwest::Response) -> Result<Value> 
         .map_err(|_| Error::ProviderUnavailable("provider response read failed".into()))?
     {
         if bytes.len().saturating_add(chunk.len()) as u64 > MAX_BODY_BYTES {
-            return Err(Error::Provider("provider response too large".into()));
+            return Err(Error::ProviderUnavailable("provider response too large".into()));
         }
         bytes.extend_from_slice(&chunk);
     }
