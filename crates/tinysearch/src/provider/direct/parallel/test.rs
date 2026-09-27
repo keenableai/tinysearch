@@ -454,3 +454,29 @@ async fn missing_credential_and_unknown_operations_fail_closed()
     ));
     Ok(())
 }
+
+#[test]
+fn normalization_keeps_direct_parallel_ids_and_answers() -> std::result::Result<(), String> {
+    let response = normalize(
+        "parallel",
+        "parallel_dataset",
+        &json!({"findall_id":"findall_1","output":{"rows":1}}),
+    );
+    let data = response.provider_data.ok_or("missing provider data")?;
+    assert_eq!(data["findall_id"], "findall_1");
+    assert!(data.get("findallId").is_none());
+    assert!(
+        response
+            .answer
+            .ok_or("missing answer")?
+            .contains("\"rows\":1")
+    );
+    let chat = normalize(
+        "parallel",
+        "parallel_chat",
+        &json!({"choices":[{"message":{"content":"grounded"}}]}),
+    );
+    assert_eq!(chat.answer.as_deref(), Some("grounded"));
+    assert_eq!(chat.status, SearchStatus::Ok);
+    Ok(())
+}
