@@ -1710,14 +1710,15 @@ fn gemini_answer_stops_accumulating_once_the_char_limit_is_reached() {
     // accumulates only up to MAX_ANSWER_CHARS, so the character content past
     // the limit is never even appended to the output string.
     let chunk = "x".repeat(500);
-    let parts: Vec<Value> = (0..50)
-        .map(|_| json!({"text": chunk.clone()}))
-        .collect();
+    let parts: Vec<Value> = (0..50).map(|_| json!({"text": chunk.clone()})).collect();
     let response = json!({"candidates": [{"content": {"parts": parts}}]});
     let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
     let answer = normalized.answer.expect("gemini answer");
     assert_eq!(answer.chars().count(), MAX_ANSWER_CHARS);
-    assert_eq!(answer, chunk.repeat(24) + &"x".repeat(MAX_ANSWER_CHARS - 24 * 500));
+    assert_eq!(
+        answer,
+        chunk.repeat(24) + &"x".repeat(MAX_ANSWER_CHARS - 24 * 500)
+    );
 }
 
 #[test]
