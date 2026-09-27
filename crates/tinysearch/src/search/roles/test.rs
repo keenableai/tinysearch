@@ -348,6 +348,27 @@ fn fixture_without_deep_research() -> Fixture {
 }
 
 #[tokio::test]
+async fn explicit_quick_depth_is_rejected_when_only_deep_research_is_usable() {
+    // When Deep Research is the sole usable Answer provider, `depth: "quick"`
+    // is not servable. It must be rejected rather than silently dropped and
+    // promoted to Deep Research (see `downgrade_unservable_depth`, which
+    // narrows its removal to the stale-`deep` case only).
+    let fixture = fixture(&[], |config| {
+        config.providers.remove("gemini");
+    });
+    let error = fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_ANSWER,
+            json!({"query":"why","depth":"quick"}),
+        ))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, Error::InvalidArguments));
+    assert!(fixture.calls("gemini_deep_research").is_empty());
+}
+
+#[tokio::test]
 async fn contents_translate_urls_per_provider() -> Result<()> {
     let fixture = fixture(&[("exa", down), ("tavily", down)], |_| {});
     let response = fixture
