@@ -1,5 +1,5 @@
 //! Bounded normalization of provider payloads.
-use super::{MAX_ANSWER_CHARS, MAX_CITATIONS, MAX_RESULTS};
+use super::{MAX_ANSWER_CHARS, MAX_CITATIONS, MAX_GROUNDING_CHUNKS, MAX_RESULTS};
 use crate::{Citation, ExecuteToolResponse, SearchResult, SearchStatus};
 use serde_json::{Map, Value};
 
