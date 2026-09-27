@@ -1,6 +1,7 @@
 //! Direct Parallel request mapping, async resume, and catalog tests.
 use super::*;
-use crate::{BackendConfig, ProviderRoute, SearchConfig, SearchService};
+use crate::{BackendConfig, PresentationMode, ProviderRoute, SearchConfig, SearchService};
+use super::super::super::builtins;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -328,7 +329,7 @@ async fn errors_do_not_expose_secret_or_response_body()
 }
 
 #[test]
-fn catalog_is_route_aware() -> std::result::Result<(), Box<dyn std::error::Error>> {
+fn all_tools_catalog_is_direct_only() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut config = SearchConfig {
         backend: BackendConfig {
             credential: Some("backend".into()),
@@ -336,6 +337,7 @@ fn catalog_is_route_aware() -> std::result::Result<(), Box<dyn std::error::Error
         },
         ..SearchConfig::default()
     };
+    config.presentation.mode = PresentationMode::AllTools;
     config.providers.insert(
         "parallel".into(),
         ProviderConfig {
@@ -344,10 +346,24 @@ fn catalog_is_route_aware() -> std::result::Result<(), Box<dyn std::error::Error
             ..ProviderConfig::default()
         },
     );
-    let tools = SearchService::with_providers(config.clone(), super::super::super::builtins())
+    let tools = SearchService::with_providers(config.clone(), builtins())
         .list_tools()
         .tools;
-    assert!(tools.iter().any(|t| t.name == "parallel_research_status"));
+    let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "parallel_search",
+            "parallel_extract",
+            "parallel_chat",
+            "parallel_research",
+            "parallel_enrich",
+            "parallel_dataset",
+            "parallel_research_status",
+            "parallel_enrich_status",
+            "parallel_dataset_status",
+        ]
+    );
     let search = tools
         .iter()
         .find(|t| t.name == "parallel_search")
@@ -367,23 +383,65 @@ fn catalog_is_route_aware() -> std::result::Result<(), Box<dyn std::error::Error
             .get("excerpts")
             .is_none()
     );
+    // A backend route never makes Parallel usable, even with a backend
+    // credential: there is no managed Parallel.
     config
         .providers
         .get_mut("parallel")
         .ok_or("missing provider")?
         .route = ProviderRoute::Backend;
-    let tools = SearchService::with_providers(config, super::super::super::builtins())
-        .list_tools()
-        .tools;
-    assert!(!tools.iter().any(|t| t.name == "parallel_research_status"));
-    assert!(
-        tools
-            .iter()
-            .find(|t| t.name == "parallel_extract")
-            .ok_or("missing extract tool")?
-            .parameters["properties"]
-            .get("excerpts")
-            .is_some()
-    );
+    let service = SearchService::with_providers(config, builtins());
+    assert!(service.list_tools().tools.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn backend_route_is_refused_without_any_request()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let backend = ProviderConfig {
+        route: ProviderRoute::Backend,
+        credential: Some("secret-key".into()),
+        ..ProviderConfig::default()
+    };
+    let error = super::super::run(
+        &Client::new(),
+        "parallel",
+        &backend,
+        &request(
+            "parallel_search",
+            json!({"objective":"Find","search_queries":["find"]}),
+        ),
+    )
+    .await
+    .err()
+    .ok_or("backend route must fail")?;
+    assert!(error.to_string().contains("direct route"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_credential_and_unknown_operations_fail_closed()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let keyless = ProviderConfig {
+        credential: Some("  ".into()),
+        ..ProviderConfig::default()
+    };
+    let error = run(
+        &Client::new(),
+        &keyless,
+        &request("parallel_search", json!({})),
+    )
+    .await
+    .err()
+    .ok_or("keyless call must fail")?;
+    assert!(error.to_string().contains("credential"));
+    assert!(prepare(&ProviderConfig::default(), &request("parallel_unknown", json!({}))).is_err());
+    assert!(matches!(
+        prepare(
+            &ProviderConfig::default(),
+            &request("parallel_extract", json!({"urls":["https://a.test"],"excerpts":false}))
+        ),
+        Err(Error::Provider(_))
+    ));
     Ok(())
 }
