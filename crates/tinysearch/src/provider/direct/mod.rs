@@ -11,6 +11,7 @@ mod brave;
 mod exa;
 #[cfg(test)]
 mod migration_tests;
+mod parallel;
 mod querit;
 mod searxng;
 mod seltz;
@@ -29,6 +30,9 @@ pub(super) async fn run(
     }
     if provider == "searxng" {
         return searxng::run(client, config, request).await;
+    }
+    if provider == "parallel" {
+        return parallel::run(client, config, request).await;
     }
     let key = config
         .credential

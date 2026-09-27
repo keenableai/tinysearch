@@ -67,7 +67,7 @@ impl BuiltinProvider {
     ) -> Result<ExecuteToolResponse> {
         let (path, body) = match self.name {
             "exa" if config.route == ProviderRoute::Backend => exa_request(request)?,
-            "exa" | "brave" | "querit" | "tavily" | "seltz" | "searxng" => {
+            "exa" | "parallel" | "brave" | "querit" | "tavily" | "seltz" | "searxng" => {
                 return direct::run(&self.client, self.name, config, request).await;
             }
             "tinyfish" => tinyfish_request(request)?,
