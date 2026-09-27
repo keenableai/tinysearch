@@ -1703,3 +1703,56 @@ fn grounding_citations_do_not_let_duplicate_urls_crowd_out_distinct_ones() {
         "the repeated URL is added once, and the distinct URL still gets a slot"
     );
 }
+
+#[test]
+fn gemini_answer_stops_accumulating_once_the_char_limit_is_reached() {
+    // `gemini_text` must not concatenate every part before clipping: it
+    // accumulates only up to MAX_ANSWER_CHARS, so the character content past
+    // the limit is never even appended to the output string.
+    let chunk = "x".repeat(500);
+    let parts: Vec<Value> = (0..50)
+        .map(|_| json!({"text": chunk.clone()}))
+        .collect();
+    let response = json!({"candidates": [{"content": {"parts": parts}}]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    let answer = normalized.answer.expect("gemini answer");
+    assert_eq!(answer.chars().count(), MAX_ANSWER_CHARS);
+    assert_eq!(answer, chunk.repeat(24) + &"x".repeat(MAX_ANSWER_CHARS - 24 * 500));
+}
+
+#[test]
+fn grounding_citations_cap_the_input_chunks_examined() {
+    // Chunks past MAX_GROUNDING_CHUNKS are never considered, bounding
+    // traversal and the `seen` allocation to a constant regardless of how
+    // large the provider's grounding payload is.
+    let beyond_cap = MAX_GROUNDING_CHUNKS + 100;
+    let chunks: Vec<Value> = (0..beyond_cap)
+        .map(
+            |i| json!({"web": {"uri": format!("https://g.example/{i}"), "title": format!("t{i}")}}),
+        )
+        .collect();
+    // Reference the very last chunk, which sits past the cap, ahead of an
+    // early, in-bounds chunk.
+    let supports = vec![
+        json!({"groundingChunkIndices": [beyond_cap - 1]}),
+        json!({"groundingChunkIndices": [0]}),
+    ];
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    let urls: Vec<&str> = normalized
+        .citations
+        .iter()
+        .map(|c| c.url.as_str())
+        .collect();
+    assert!(
+        !urls.contains(&format!("https://g.example/{}", beyond_cap - 1).as_str()),
+        "a chunk past MAX_GROUNDING_CHUNKS is never selected: {urls:?}"
+    );
+    assert!(
+        urls.contains(&"https://g.example/0"),
+        "an in-bounds chunk is still selected: {urls:?}"
+    );
+}
