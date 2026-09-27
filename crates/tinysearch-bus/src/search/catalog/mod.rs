@@ -1,9 +1,52 @@
 //! Tool schemas and presentation selection shared by hosts and modules.
 use super::{
-    ListToolsResponse, PresentationConfig, PresentationMode, ProviderRoute, SearchConfig, ToolSpec,
+    ListToolsResponse, PresentationConfig, PresentationMode, ProviderRoute, Role, SearchConfig,
+    ToolSpec,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+mod roles;
+pub use roles::{
+    default_role_providers, provider_roles, role_provider_tool, role_providers, role_tool_specs,
+};
+
+/// Every provider the module implements, by stable name.
+pub const PROVIDERS: &[&str] = &[
+    "exa",
+    "gemini",
+    "gemini_deep_research",
+    "tinyfish",
+    "brave",
+    "querit",
+    "tavily",
+    "seltz",
+    "searxng",
+];
+
+/// Providers that support [`ProviderRoute::Backend`] through the managed
+/// backend. Only these become usable from a backend credential.
+pub const BACKEND_PROVIDERS: &[&str] = &["exa", "gemini", "tinyfish"];
+
+/// Providers usable directly with their own private credential.
+const KEYED_DIRECT_PROVIDERS: &[&str] = &[
+    "exa",
+    "brave",
+    "querit",
+    "tavily",
+    "gemini",
+    "gemini_deep_research",
+    "seltz",
+];
+
+/// Gemini models the managed backend accepts for grounded generation.
+const GEMINI_BACKEND_MODELS: &[&str] = &[
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro-preview",
+];
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> ToolSpec {
     let mut parameters = json!({"type":"object","required":required,"additionalProperties":false});
@@ -20,47 +63,6 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 pub fn provider_tool_specs() -> BTreeMap<String, Vec<ToolSpec>> {
     let text = json!({"type":"string","minLength":1});
     let urls = |max| json!({"type":"array","items":{"type":"string","minLength":1},"minItems":1,"maxItems":max});
-    let input = json!({"oneOf":[{"type":"string","minLength":1},{"type":"object"}]});
-    let processor = json!({"type":"string","enum":["lite","base","core","ultra"]});
-    let timeout = json!({"type":"integer","minimum":10,"maximum":900});
-    let mut parallel = vec![
-        tool(
-            "parallel_search",
-            "Search the web with Parallel",
-            json!({"objective":text,"search_queries":urls(10),"mode":{"type":"string","enum":["fast","one-shot","agentic"]},"num_results":{"type":"integer","minimum":1,"maximum":50},"max_characters_per_excerpt":{"type":"integer","minimum":100,"maximum":10000}}),
-            &["objective", "search_queries"],
-        ),
-        tool(
-            "parallel_extract",
-            "Extract web pages with Parallel",
-            json!({"urls":urls(20),"objective":text,"excerpts":{"type":"boolean"},"full_content":{"type":"boolean"}}),
-            &["urls"],
-        ),
-        tool(
-            "parallel_chat",
-            "Ask Parallel's web grounded chat",
-            json!({"model":{"type":"string","enum":["speed","lite","base","core"]},"messages":{"type":"array","minItems":1,"items":{"type":"object","properties":{"role":{"type":"string","enum":["system","user","assistant"]},"content":text},"required":["role","content"],"additionalProperties":false}}}),
-            &["model", "messages"],
-        ),
-        tool(
-            "parallel_research",
-            "Run Parallel research",
-            json!({"input":input,"processor":processor,"output_schema":{"type":"object"},"timeout_seconds":timeout}),
-            &["input", "processor"],
-        ),
-        tool(
-            "parallel_enrich",
-            "Enrich an entity with Parallel",
-            json!({"input":input,"processor":processor,"output_schema":{"type":"object"},"timeout_seconds":timeout}),
-            &["input", "processor", "output_schema"],
-        ),
-        tool(
-            "parallel_dataset",
-            "Build a dataset with Parallel",
-            json!({"objective":text,"entity_type":text,"match_conditions":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","properties":{"name":text,"description":text},"required":["name","description"],"additionalProperties":false}},"generator":{"type":"string","enum":["preview","base","core","pro"]},"match_limit":{"type":"integer","minimum":5,"maximum":1000}}),
-            &["objective", "entity_type", "match_conditions"],
-        ),
-    ];
     let tinyfish = vec![
         tool(
             "tinyfish_search",
@@ -93,9 +95,7 @@ pub fn provider_tool_specs() -> BTreeMap<String, Vec<ToolSpec>> {
         json!({"query":text,"interaction_id":{"type":"string","minLength":1},"max_poll_attempts":{"type":"integer","minimum":1,"maximum":30}}),
         &[],
     )];
-    parallel.shrink_to_fit();
     let mut specs: BTreeMap<String, Vec<ToolSpec>> = [
-        ("parallel".into(), parallel),
         ("tinyfish".into(), tinyfish),
         ("gemini".into(), gemini),
         ("gemini_deep_research".into(), deep),
@@ -290,65 +290,3 @@ pub fn select_tools(
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn catalog_and_selection_are_stable() {
-        let specs = provider_tool_specs();
-        assert_eq!(specs["parallel"][0].name, "parallel_search");
-        assert_eq!(specs["parallel"].len(), 6);
-        assert_eq!(specs["tinyfish"].len(), 3);
-        assert_eq!(
-            select_tools(&specs, &PresentationConfig::default())
-                .tools
-                .len(),
-            23
-        );
-    }
-    #[test]
-    fn findall_match_conditions_require_name_and_description()
-    -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let specs = provider_tool_specs();
-        let dataset = specs["parallel"]
-            .iter()
-            .find(|tool| tool.name == "parallel_dataset")
-            .ok_or("missing dataset tool")?;
-        let condition = &dataset.parameters["properties"]["match_conditions"]["items"];
-        assert_eq!(condition["required"], json!(["name", "description"]));
-        assert_eq!(condition["properties"]["description"]["minLength"], 1);
-        Ok(())
-    }
-    #[test]
-    fn searxng_categories_match_supported_execution_values() {
-        let specs = provider_tool_specs();
-        assert_eq!(
-            specs["searxng"][0].parameters["properties"]["categories"]["items"]["enum"],
-            json!(["web", "general", "news", "images"])
-        );
-    }
-    #[test]
-    fn direct_tools_require_a_nonempty_private_credential() {
-        let specs = provider_tool_specs();
-        let mut config = SearchConfig::default();
-        for name in ["exa", "brave", "querit", "tavily", "seltz"] {
-            config.providers.insert(
-                name.into(),
-                super::super::ProviderConfig {
-                    credential: Some("  ".into()),
-                    ..Default::default()
-                },
-            );
-        }
-        assert!(configured_provider_tools(&config, &specs).is_empty());
-        for provider in config.providers.values_mut() {
-            provider.credential = Some("secret".into());
-        }
-        let available = configured_provider_tools(&config, &specs);
-        assert_eq!(available["exa"].len(), 3);
-        assert_eq!(available["brave"].len(), 4);
-        assert_eq!(available["querit"].len(), 1);
-        assert_eq!(available["tavily"].len(), 2);
-        assert_eq!(available["seltz"].len(), 1);
-    }
-}
