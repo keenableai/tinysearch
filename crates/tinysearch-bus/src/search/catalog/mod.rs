@@ -277,7 +277,9 @@ pub fn select_tools(
                 .unwrap_or_default(),
         },
         PresentationMode::Router => {
-            if provider_tools.is_empty() {
+            if provider_tools.is_empty()
+                || role_providers(provider_tools, presentation, Role::Search).is_empty()
+            {
                 return ListToolsResponse::default();
             }
             // Router forwards provider-specific options, so it must advertise that fact.
