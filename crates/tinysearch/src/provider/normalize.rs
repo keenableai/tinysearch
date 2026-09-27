@@ -101,16 +101,19 @@ fn gemini_text(value: &Value) -> Option<String> {
         .pointer("/candidates/0/content/parts")
         .and_then(Value::as_array)?;
     let mut text = String::new();
+    let mut collected = 0_usize;
     for part in parts {
-        if text.len() >= MAX_ANSWER_CHARS {
+        if collected >= MAX_ANSWER_CHARS {
             break;
         }
         if part.get("thought") == Some(&Value::Bool(true)) {
             continue;
         }
         if let Some(part_text) = part.get("text").and_then(Value::as_str) {
-            let remaining = MAX_ANSWER_CHARS - text.chars().count();
-            text.extend(part_text.chars().take(remaining));
+            let remaining = MAX_ANSWER_CHARS - collected;
+            let taken = part_text.chars().take(remaining);
+            collected += taken.clone().count();
+            text.extend(taken);
         }
     }
     (!text.is_empty()).then_some(text)
