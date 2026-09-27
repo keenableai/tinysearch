@@ -65,14 +65,7 @@ fn add_citation(citations: &mut Vec<Citation>, url: &str, title: Option<&str>) {
 }
 fn answer_for(tool: &str, value: &Value) -> Option<String> {
     match tool {
-        "parallel_chat" => value
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str)
-            .map(|s| clipped(s, MAX_ANSWER_CHARS)),
-        "gemini_agentic_search" => value
-            .pointer("/candidates/0/content/parts/0/text")
-            .and_then(Value::as_str)
-            .map(|s| clipped(s, MAX_ANSWER_CHARS)),
+        "gemini_agentic_search" => gemini_text(value),
         "gemini_deep_research" => value
             .get("steps")
             .and_then(Value::as_array)
@@ -84,13 +77,7 @@ fn answer_for(tool: &str, value: &Value) -> Option<String> {
             .and_then(Value::as_str)
             .or_else(|| value.get("output_text").and_then(Value::as_str))
             .map(|s| clipped(s, MAX_ANSWER_CHARS)),
-        "parallel_research"
-        | "parallel_enrich"
-        | "parallel_dataset"
-        | "parallel_research_status"
-        | "parallel_enrich_status"
-        | "parallel_dataset_status"
-        | "tinyfish_agent_run" => value
+        "tinyfish_agent_run" => value
             .get("result")
             .or_else(|| value.get("output"))
             .map(|v| clipped(v.as_str().unwrap_or(&v.to_string()), MAX_ANSWER_CHARS)),
@@ -101,6 +88,58 @@ fn answer_for(tool: &str, value: &Value) -> Option<String> {
             .and_then(|v| v.get("text"))
             .map(|v| clipped(v.as_str().unwrap_or(&v.to_string()), MAX_ANSWER_CHARS)),
         _ => get_text(value, "answer"),
+    }
+}
+
+/// Joins the text parts of Gemini's first candidate, skipping thought parts.
+fn gemini_text(value: &Value) -> Option<String> {
+    let text: String = value
+        .pointer("/candidates/0/content/parts")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|part| part.get("thought") != Some(&Value::Bool(true)))
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .collect();
+    (!text.is_empty()).then(|| clipped(&text, MAX_ANSWER_CHARS))
+}
+
+/// Adds Gemini grounding sources as citations: chunks that ground the answer
+/// (referenced by `groundingSupports`) first, in order of first reference,
+/// then any remaining web chunks.
+fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
+    let Some(metadata) = value.pointer("/candidates/0/groundingMetadata") else {
+        return;
+    };
+    let Some(chunks) = metadata.get("groundingChunks").and_then(Value::as_array) else {
+        return;
+    };
+    let mut order: Vec<usize> = Vec::new();
+    for support in metadata
+        .get("groundingSupports")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for index in support
+            .get("groundingChunkIndices")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .filter_map(|index| usize::try_from(index).ok())
+        {
+            if index < chunks.len() && !order.contains(&index) {
+                order.push(index);
+            }
+        }
+    }
+    order.extend((0..chunks.len()).filter(|index| !order.contains(index)));
+    for index in order {
+        if let Some(web) = chunks[index].get("web")
+            && let Some(url) = web.get("uri").and_then(Value::as_str)
+        {
+            add_citation(citations, url, web.get("title").and_then(Value::as_str));
+        }
     }
 }
 
@@ -152,32 +191,15 @@ pub(super) fn normalize(provider: &str, tool: &str, value: &Value) -> ExecuteToo
             }
         }
     }
-    if let Some(chunks) = value
-        .pointer("/candidates/0/groundingMetadata/groundingChunks")
-        .and_then(Value::as_array)
-    {
-        for item in chunks.iter().take(MAX_CITATIONS) {
-            if let Some(web) = item.get("web")
-                && let Some(url) = web.get("uri").and_then(Value::as_str)
-            {
-                add_citation(
-                    &mut citations,
-                    url,
-                    web.get("title").and_then(Value::as_str),
-                );
-            }
-        }
-    }
+    add_grounding_citations(&mut citations, value);
     let answer = answer_for(tool, value);
     let mut meta = Map::new();
     for field in [
         "id",
-        "findallId",
-        "matchLimit",
+        "requestId",
         "runId",
         "searchId",
         "run_id",
-        "findall_id",
         "search_id",
         "extract_id",
         "status",
@@ -204,5 +226,7 @@ pub(super) fn normalize(provider: &str, tool: &str, value: &Value) -> ExecuteToo
         answer,
         status,
         provider_data: (!meta.is_empty()).then_some(Value::Object(meta)),
+        role: None,
+        fallback_from: Vec::new(),
     }
 }

@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepared> {
-    let (path, body) = body(request)?;
+    let (path, body) = request_body(request)?;
     Ok((
         Method::POST,
         "https://api.exa.ai",
@@ -18,7 +18,7 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
 }
 
 /// Builds Exa's own request path and body for an Exa tool.
-pub(super) fn body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
+pub(super) fn request_body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
     let args = &request.arguments;
     let (path, mut body) = match request.name.as_str() {
         "exa_search" => (
