@@ -92,15 +92,28 @@ fn answer_for(tool: &str, value: &Value) -> Option<String> {
 }
 
 /// Joins the text parts of Gemini's first candidate, skipping thought parts.
+///
+/// Accumulates only up to `MAX_ANSWER_CHARS`: a response with many or very
+/// large parts stops contributing characters once the limit is reached
+/// instead of first concatenating the whole answer and clipping afterward.
 fn gemini_text(value: &Value) -> Option<String> {
-    let text: String = value
+    let parts = value
         .pointer("/candidates/0/content/parts")
-        .and_then(Value::as_array)?
-        .iter()
-        .filter(|part| part.get("thought") != Some(&Value::Bool(true)))
-        .filter_map(|part| part.get("text").and_then(Value::as_str))
-        .collect();
-    (!text.is_empty()).then(|| clipped(&text, MAX_ANSWER_CHARS))
+        .and_then(Value::as_array)?;
+    let mut text = String::new();
+    for part in parts {
+        if text.len() >= MAX_ANSWER_CHARS {
+            break;
+        }
+        if part.get("thought") == Some(&Value::Bool(true)) {
+            continue;
+        }
+        if let Some(part_text) = part.get("text").and_then(Value::as_str) {
+            let remaining = MAX_ANSWER_CHARS - text.chars().count();
+            text.extend(part_text.chars().take(remaining));
+        }
+    }
+    (!text.is_empty()).then_some(text)
 }
 
 /// Adds Gemini grounding sources as citations: chunks that ground the answer
