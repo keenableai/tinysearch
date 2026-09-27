@@ -13,6 +13,13 @@ use tinysearch_bus::{
 /// The provider that serves only `depth: "deep"` answers.
 const DEEP_RESEARCH: &str = "gemini_deep_research";
 
+/// Answer providers that serve only quick answers and are never used for
+/// `depth: "deep"`.
+const QUICK_ONLY: &[&str] = &["parallel"];
+
+/// The Parallel chat model used for quick answers.
+const PARALLEL_ANSWER_MODEL: &str = "speed";
+
 impl SearchService {
     /// Executes a role tool across the role's providers.
     ///
@@ -38,10 +45,15 @@ impl SearchService {
             .ok_or(Error::InvalidArguments)?;
         let usable = role_providers(available, &self.config.presentation, role);
         let explicit = args.get("provider").and_then(Value::as_str);
-        if role == Role::Answer && explicit == Some(DEEP_RESEARCH) {
+        if role == Role::Answer {
             let depth = args.get("depth").and_then(Value::as_str);
-            let only_deep = usable.iter().all(|name| name == DEEP_RESEARCH);
-            if depth == Some("quick") || (depth.is_none() && !only_deep) {
+            if explicit == Some(DEEP_RESEARCH) {
+                let only_deep = usable.iter().all(|name| name == DEEP_RESEARCH);
+                if depth == Some("quick") || (depth.is_none() && !only_deep) {
+                    return Err(Error::InvalidArguments);
+                }
+            }
+            if depth == Some("deep") && explicit.is_some_and(|name| QUICK_ONLY.contains(&name)) {
                 return Err(Error::InvalidArguments);
             }
         }
@@ -86,8 +98,9 @@ impl SearchService {
 /// Orders answer providers for the requested depth.
 ///
 /// `deep` puts Deep Research first when it is usable and keeps the grounded
-/// providers as fallbacks. `quick` never uses Deep Research. An absent depth
-/// is `quick` unless Deep Research is the only usable provider.
+/// providers as fallbacks, skipping the quick-only providers (Parallel).
+/// `quick` never uses Deep Research. An absent depth is `quick` unless Deep
+/// Research is the only usable provider.
 fn answer_order(mut usable: Vec<String>, args: &Map<String, Value>) -> Vec<String> {
     let only_deep = usable.iter().all(|name| name == DEEP_RESEARCH);
     let deep = match args.get("depth").and_then(Value::as_str) {
@@ -95,6 +108,7 @@ fn answer_order(mut usable: Vec<String>, args: &Map<String, Value>) -> Vec<Strin
         None => only_deep,
     };
     if deep {
+        usable.retain(|name| !QUICK_ONLY.contains(&name.as_str()));
         if let Some(index) = usable.iter().position(|name| name == DEEP_RESEARCH) {
             let research = usable.remove(index);
             usable.insert(0, research);
@@ -115,6 +129,12 @@ pub(super) fn provider_arguments(
 ) -> Value {
     let get = |key: &str| args.get(key).cloned().unwrap_or(Value::Null);
     let mut mapped = match role {
+        // Parallel's search takes an objective plus explicit queries.
+        Role::Search if provider == "parallel" => json!({
+            "objective":get("query"),
+            "search_queries":[get("query")],
+            "num_results":get("max_results")
+        }),
         Role::Search => {
             let count_field = if provider == "brave" {
                 "count"
@@ -123,7 +143,18 @@ pub(super) fn provider_arguments(
             };
             json!({"query":get("query"), count_field:get("max_results")})
         }
+        // Parallel answers through its chat completions API.
+        Role::Answer if provider == "parallel" => json!({
+            "model":PARALLEL_ANSWER_MODEL,
+            "messages":[{"role":"user","content":get("query")}]
+        }),
         Role::Answer => json!({"query":get("query")}),
+        // Parallel's extract focuses on an objective and can return the full page.
+        Role::Contents if provider == "parallel" => json!({
+            "urls":get("urls"),
+            "objective":get("query"),
+            "full_content":true
+        }),
         Role::Contents => {
             let mut mapped = json!({"urls":get("urls"),"query":get("query")});
             if provider == "tinyfish" {
