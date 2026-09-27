@@ -6,7 +6,7 @@ fn config_defaults_and_redacts_credentials() -> serde_json::Result<()> {
     let mut config = SearchConfig::default();
     config.backend.credential = Some("backend-secret".into());
     config.providers.insert(
-        "parallel".into(),
+        "exa".into(),
         ProviderConfig {
             credential: Some("provider-secret".into()),
             ..ProviderConfig::default()
@@ -17,19 +17,20 @@ fn config_defaults_and_redacts_credentials() -> serde_json::Result<()> {
     assert!(!debug.contains("provider-secret"));
     let decoded: SearchConfig = serde_json::from_value(serde_json::json!({}))?;
     assert!(decoded.enabled);
-    assert_eq!(decoded.presentation.mode, PresentationMode::AllTools);
+    assert_eq!(decoded.presentation.mode, PresentationMode::Roles);
+    assert!(decoded.presentation.roles.is_empty());
     Ok(())
 }
 
 #[test]
 fn execution_wire_names_are_stable() -> serde_json::Result<()> {
     let request = ExecuteToolRequest {
-        name: "parallel_search".into(),
+        name: "web_search_tool".into(),
         arguments: serde_json::json!({"query":"rust"}),
     };
     assert_eq!(
         serde_json::to_value(request)?,
-        serde_json::json!({"name":"parallel_search","arguments":{"query":"rust"}})
+        serde_json::json!({"name":"web_search_tool","arguments":{"query":"rust"}})
     );
     Ok(())
 }
@@ -70,5 +71,52 @@ fn provider_limits_round_trip_without_exposing_credential_in_debug() -> serde_js
     assert_eq!(legacy.max_results, None);
     assert_eq!(legacy.timeout_secs, None);
     assert_eq!(legacy.default_language, None);
+    Ok(())
+}
+
+#[test]
+fn roles_and_role_lists_round_trip_as_snake_case() -> serde_json::Result<()> {
+    let presentation: PresentationConfig = serde_json::from_value(serde_json::json!({
+        "mode":"roles",
+        "roles":{"search":["brave","exa"],"answer":["gemini"],"contents":[]}
+    }))?;
+    assert_eq!(presentation.mode, PresentationMode::Roles);
+    assert_eq!(presentation.roles[&Role::Search], ["brave", "exa"]);
+    assert_eq!(presentation.roles[&Role::Answer], ["gemini"]);
+    assert!(presentation.roles[&Role::Contents].is_empty());
+    assert_eq!(
+        serde_json::to_value(&presentation)?["roles"]["search"],
+        serde_json::json!(["brave", "exa"])
+    );
+    assert_eq!(serde_json::to_value(Role::Contents)?, "contents");
+    assert_eq!(Role::Answer.to_string(), "answer");
+    for mode in ["roles", "all_tools", "router", "one_provider"] {
+        let decoded: PresentationMode = serde_json::from_value(serde_json::json!(mode))?;
+        assert_eq!(serde_json::to_value(decoded)?, mode);
+    }
+    Ok(())
+}
+
+#[test]
+fn role_response_fields_are_optional_on_the_wire() -> serde_json::Result<()> {
+    let legacy: ExecuteToolResponse = serde_json::from_value(serde_json::json!({
+        "provider":"exa","results":[],"citations":[],"answer":null,"status":"empty"
+    }))?;
+    assert_eq!(legacy.role, None);
+    assert!(legacy.fallback_from.is_empty());
+    let encoded = serde_json::to_value(&legacy)?;
+    assert!(encoded.get("role").is_none());
+    assert!(encoded.get("fallback_from").is_none());
+
+    let routed = ExecuteToolResponse {
+        role: Some(Role::Search),
+        fallback_from: vec!["exa".into()],
+        provider: "brave".into(),
+        ..legacy
+    };
+    let encoded = serde_json::to_value(&routed)?;
+    assert_eq!(encoded["role"], "search");
+    assert_eq!(encoded["fallback_from"], serde_json::json!(["exa"]));
+    assert_eq!(serde_json::from_value::<ExecuteToolResponse>(encoded)?, routed);
     Ok(())
 }
