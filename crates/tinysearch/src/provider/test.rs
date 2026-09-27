@@ -1674,3 +1674,32 @@ fn grounding_citations_skip_unusable_chunks_without_spending_the_citation_limit(
     );
     assert_eq!(normalized.citations[0].url, "https://g.example/usable");
 }
+
+#[test]
+fn grounding_citations_do_not_let_duplicate_urls_crowd_out_distinct_ones() {
+    // `add_citation` drops a duplicate URL, so a referenced chunk that repeats
+    // an already-selected URL must not consume one of the MAX_CITATIONS
+    // ordering slots ahead of a later, distinct URL.
+    let mut chunks: Vec<Value> = (0..MAX_CITATIONS)
+        .map(|_| json!({"web": {"uri": "https://g.example/repeated", "title": "dup"}}))
+        .collect();
+    chunks.push(json!({"web": {"uri": "https://g.example/distinct", "title": "distinct"}}));
+    let supports: Vec<Value> = (0..chunks.len())
+        .map(|i| json!({"groundingChunkIndices": [i]}))
+        .collect();
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    let urls: Vec<&str> = normalized
+        .citations
+        .iter()
+        .map(|c| c.url.as_str())
+        .collect();
+    assert_eq!(
+        urls,
+        ["https://g.example/repeated", "https://g.example/distinct"],
+        "the repeated URL is added once, and the distinct URL still gets a slot"
+    );
+}
