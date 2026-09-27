@@ -204,6 +204,7 @@ async fn direct_errors_hide_query_key_and_response_body() -> TestResult<()> {
 #[test]
 fn keyless_searxng_requires_explicit_url_and_direct_route() -> TestResult<()> {
     let mut config = SearchConfig::default();
+    config.presentation.mode = crate::PresentationMode::AllTools;
     config
         .providers
         .insert("searxng".into(), ProviderConfig::default());

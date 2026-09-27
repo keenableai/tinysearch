@@ -54,38 +54,14 @@ pub(super) async fn run(
     if !language.is_empty() {
         params.push(("language", language));
     }
-    let mut response = client
+    let response = client
         .get(endpoint)
         .query(&params)
         .timeout(configured_timeout(config, Duration::from_secs(10)))
         .send()
         .await
-        .map_err(|_| Error::Provider("provider transport failed".into()))?;
-    if !response.status().is_success() {
-        return Err(Error::Provider(format!(
-            "provider returned HTTP {}",
-            response.status().as_u16()
-        )));
-    }
-    if response
-        .content_length()
-        .is_some_and(|n| n > super::super::MAX_BODY_BYTES)
-    {
-        return Err(Error::Provider("provider response too large".into()));
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| Error::Provider("provider response read failed".into()))?
-    {
-        if bytes.len().saturating_add(chunk.len()) as u64 > super::super::MAX_BODY_BYTES {
-            return Err(Error::Provider("provider response too large".into()));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| Error::Provider("provider returned invalid JSON".into()))?;
+        .map_err(super::super::http::transport_error)?;
+    let value: Value = super::super::http::read_json(response).await?;
     Ok(normalize(&value, max_results))
 }
 
@@ -182,5 +158,7 @@ fn normalize(value: &Value, max_results: usize) -> ExecuteToolResponse {
         answer: None,
         status,
         provider_data: Some(json!({"sources":sources})),
+        role: None,
+        fallback_from: Vec::new(),
     }
 }

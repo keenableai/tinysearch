@@ -3,9 +3,11 @@ use crate::{Error, Result};
 use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
 use tinysearch_bus::{
     BackendConfig, ExecuteToolRequest, ExecuteToolResponse, ListToolsResponse, PresentationMode,
-    ProviderConfig, ProviderRoute, SearchConfig, ToolSpec, configured_provider_tools,
-    provider_tool_specs, select_tools,
+    ProviderConfig, Role, SearchConfig, ToolSpec, configured_provider_tools, provider_tool_specs,
+    role_providers, select_tools,
 };
+
+mod roles;
 
 /// Boxed provider future. Providers may perform asynchronous I/O.
 pub type ProviderFuture<'a> =
@@ -58,6 +60,9 @@ impl SearchService {
 
     /// Executes a currently advertised tool.
     ///
+    /// In `roles` mode the tool is a role tool, dispatched across the role's
+    /// providers with fallback (see [`Error::is_fallback_eligible`]).
+    ///
     /// # Errors
     /// Returns an error for disabled search, malformed arguments, or unavailable
     /// tools/providers, and propagates provider errors.
@@ -65,95 +70,99 @@ impl SearchService {
         if !self.config.enabled {
             return Err(Error::Disabled);
         }
-        let arguments = request
-            .arguments
-            .as_object()
-            .ok_or(Error::InvalidArguments)?;
+        if !request.arguments.is_object() {
+            return Err(Error::InvalidArguments);
+        }
         let available = self.available_tools();
-        let (provider_name, tool) = if self.config.presentation.mode == PresentationMode::Router {
-            if request.name != "search" {
-                return Err(Error::UnavailableTool(request.name));
+        match self.config.presentation.mode {
+            PresentationMode::Roles => self.execute_role(&available, request).await,
+            PresentationMode::Router => self.execute_router(&available, request).await,
+            PresentationMode::AllTools | PresentationMode::OneProvider => {
+                let advertised = select_tools(&available, &self.config.presentation);
+                if !advertised
+                    .tools
+                    .iter()
+                    .any(|tool| tool.name == request.name)
+                {
+                    return Err(Error::UnavailableTool(request.name));
+                }
+                let (provider, tool) = available
+                    .iter()
+                    .find_map(|(name, tools)| {
+                        tools
+                            .iter()
+                            .find(|tool| tool.name == request.name)
+                            .map(|tool| (name.clone(), tool.clone()))
+                    })
+                    .ok_or_else(|| Error::UnavailableTool(request.name.clone()))?;
+                self.dispatch(&provider, &tool, request).await
             }
-            let router = select_tools(&available, &self.config.presentation)
-                .tools
-                .into_iter()
-                .next()
-                .ok_or_else(|| Error::UnavailableTool(request.name.clone()))?;
-            validate_arguments(&router, &request.arguments)?;
-            let explicit = arguments
-                .get("provider")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
-            let selected = explicit
-                .or_else(|| self.config.presentation.provider.clone())
-                .or_else(|| {
-                    if self.config.backend.credential.is_some()
-                        && available.contains_key("parallel")
-                    {
-                        Some("parallel".into())
-                    } else {
-                        available.keys().next().cloned()
-                    }
-                })
-                .ok_or(Error::MissingProvider)?;
-            let first_tool = available
-                .get(&selected)
-                .and_then(|tools| tools.first())
-                .ok_or_else(|| Error::UnavailableProvider(selected.clone()))?;
-            (selected, first_tool.clone())
-        } else {
-            let advertised = select_tools(&available, &self.config.presentation);
-            if !advertised
-                .tools
-                .iter()
-                .any(|tool| tool.name == request.name)
-            {
-                return Err(Error::UnavailableTool(request.name));
-            }
-            available
-                .iter()
-                .find_map(|(name, tools)| {
-                    tools
-                        .iter()
-                        .find(|tool| tool.name == request.name)
-                        .map(|tool| (name.clone(), tool.clone()))
-                })
-                .ok_or_else(|| Error::UnavailableTool(request.name.clone()))?
-        };
+        }
+    }
+
+    async fn execute_router(
+        &self,
+        available: &BTreeMap<String, Vec<ToolSpec>>,
+        request: ExecuteToolRequest,
+    ) -> Result<ExecuteToolResponse> {
+        if request.name != "search" {
+            return Err(Error::UnavailableTool(request.name));
+        }
+        let router = select_tools(available, &self.config.presentation)
+            .tools
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::UnavailableTool(request.name.clone()))?;
+        validate_arguments(&router, &request.arguments)?;
+        let explicit = request
+            .arguments
+            .get("provider")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let selected = explicit
+            .or_else(|| self.config.presentation.provider.clone())
+            .or_else(|| {
+                role_providers(available, &self.config.presentation, Role::Search)
+                    .into_iter()
+                    .next()
+            })
+            .ok_or(Error::MissingProvider)?;
+        let first_tool = available
+            .get(&selected)
+            .and_then(|tools| tools.first())
+            .cloned()
+            .ok_or_else(|| Error::UnavailableProvider(selected.clone()))?;
+        let mut provider_request = request;
+        if let Some(values) = provider_request.arguments.as_object_mut() {
+            values.remove("provider");
+        }
+        self.dispatch(&selected, &first_tool, provider_request)
+            .await
+    }
+
+    /// Validates `request` against a provider tool and runs it on `provider`.
+    async fn dispatch(
+        &self,
+        provider_name: &str,
+        tool: &ToolSpec,
+        mut request: ExecuteToolRequest,
+    ) -> Result<ExecuteToolResponse> {
         let provider = self
             .providers
-            .get(&provider_name)
-            .ok_or_else(|| Error::UnavailableProvider(provider_name.clone()))?;
+            .get(provider_name)
+            .ok_or_else(|| Error::UnavailableProvider(provider_name.to_owned()))?;
         let config = self
             .config
             .providers
-            .get(&provider_name)
+            .get(provider_name)
             .cloned()
-            .unwrap_or(ProviderConfig {
-                route: ProviderRoute::Backend,
-                ..ProviderConfig::default()
-            });
-        let mut provider_request = request;
-        provider_request.name = tool.name.clone();
-        if self.config.presentation.mode == PresentationMode::Router
-            && let Some(values) = provider_request.arguments.as_object_mut()
-        {
-            values.remove("provider");
-            if provider_name == "parallel" {
-                // The router query is the Parallel objective and its search query.
-                if let Some(query) = values.remove("query") {
-                    values.entry("objective").or_insert_with(|| query.clone());
-                    values
-                        .entry("search_queries")
-                        .or_insert_with(|| serde_json::json!([query]));
-                }
-            }
-        }
-        validate_arguments(&tool, &provider_request.arguments)?;
+            .unwrap_or_default();
+        request.name.clone_from(&tool.name);
+        validate_arguments(tool, &request.arguments)?;
         let mut response = provider
-            .execute(&config, &self.config.backend, &provider_request)
+            .execute(&config, &self.config.backend, &request)
             .await?;
-        response.provider = provider_name;
+        provider_name.clone_into(&mut response.provider);
         Ok(response)
     }
 

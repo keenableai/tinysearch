@@ -64,35 +64,14 @@ async fn send(client: &Client, config: &ProviderConfig, prepared: Prepared) -> R
     if !params.is_empty() {
         builder = builder.query(&params);
     }
-    let mut response = builder
-        .send()
-        .await
-        .map_err(|_| Error::Provider("provider transport failed".into()))?;
-    if !response.status().is_success() {
-        return Err(Error::Provider(format!(
-            "provider returned HTTP {}",
-            response.status().as_u16()
-        )));
-    }
-    if response
-        .content_length()
-        .is_some_and(|n| n > super::MAX_BODY_BYTES)
-    {
-        return Err(Error::Provider("provider response too large".into()));
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| Error::Provider("provider response read failed".into()))?
-    {
-        if bytes.len().saturating_add(chunk.len()) as u64 > super::MAX_BODY_BYTES {
-            return Err(Error::Provider("provider response too large".into()));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    serde_json::from_slice(&bytes)
-        .map_err(|_| Error::Provider("provider returned invalid JSON".into()))
+    let response = builder.send().await.map_err(super::http::transport_error)?;
+    super::http::read_json(response).await
+}
+
+/// The Exa API path and body for an Exa tool, shared by the direct and
+/// managed backend routes.
+pub(super) fn exa_body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
+    exa::exa_body(request)
 }
 
 fn normalize_response(

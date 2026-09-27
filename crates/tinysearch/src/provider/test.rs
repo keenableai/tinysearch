@@ -356,30 +356,55 @@ async fn backend_requires_credential() -> TestResult<()> {
     Ok(())
 }
 
+fn sent_body(sent: &str) -> TestResult<Value> {
+    let (_, body) = sent.split_once("\r\n\r\n").ok_or("request has no body")?;
+    Ok(serde_json::from_str(body)?)
+}
+
+fn backend_route() -> ProviderConfig {
+    ProviderConfig {
+        route: ProviderRoute::Backend,
+        ..ProviderConfig::default()
+    }
+}
+
 #[tokio::test]
-async fn parallel_search_maps_knobs_unwraps_and_bounds_results() -> TestResult<()> {
-    let items: Vec<Value> = (0..30).map(|i| json!({"url":format!("https://site/{i}"),"title":"t","excerpts":["x".repeat(1500)]})).collect();
+async fn exa_backend_search_sends_objective_and_queries_and_bounds_results() -> TestResult<()> {
+    let items: Vec<Value> = (0..30)
+        .map(|i| {
+            json!({"url":format!("https://site/{i}"),"title":"t","publish_date":"2026-01-02","excerpts":["x".repeat(1500)]})
+        })
+        .collect();
     let (url, server) = mock(
         200,
-        json!({"success":true,"data":{"results":items,"costUsd":0.1}}),
+        json!({"success":true,"data":{"searchId":"req-1","results":items,"costUsd":0.1}}),
     )
     .await?;
     let provider = BuiltinProvider {
-        name: "parallel",
+        name: "exa",
         client: Client::new(),
     };
-    let response = provider.run(&ProviderConfig { route: ProviderRoute::Backend, ..ProviderConfig::default() }, &backend(url, BackendAuthMode::ApiKey), &request("parallel_search", json!({"objective":"purpose","search_queries":["query"],"mode":"agentic","num_results":5,"max_characters_per_excerpt":900}))).await?;
+    let response = provider
+        .run(
+            &backend_route(),
+            &backend(url, BackendAuthMode::ApiKey),
+            &request("exa_search", json!({"query":"rust async"})),
+        )
+        .await?;
     let sent = server.await??;
-    assert!(sent.starts_with("POST /agent-integrations/parallel/search "));
-    assert!(
-        sent.to_ascii_lowercase()
-            .contains("x-api-key: secret-token")
+    assert!(sent.starts_with("POST /agent-integrations/exa/search "));
+    let headers = sent.to_ascii_lowercase();
+    assert!(headers.contains("x-api-key: secret-token"));
+    assert!(headers.contains("x-sdk-name: openhuman"));
+    assert!(!headers.contains("authorization: bearer"));
+    // Golden body: the backend route is strict and rejects `mode`.
+    assert_eq!(
+        sent_body(&sent)?,
+        json!({"objective":"rust async","searchQueries":["rust async"]})
     );
-    assert!(sent.to_ascii_lowercase().contains("x-sdk-name: openhuman"));
-    assert!(!sent.to_ascii_lowercase().contains("authorization: bearer"));
-    assert!(sent.contains("\"searchQueries\":[\"query\"]"));
-    assert!(sent.contains("\"maxCharactersPerExcerpt\":900"));
+    assert_eq!(response.provider, "exa");
     assert_eq!(response.results.len(), 20);
+    assert_eq!(response.results[0].published.as_deref(), Some("2026-01-02"));
     assert_eq!(
         response.results[0]
             .snippet
@@ -390,6 +415,255 @@ async fn parallel_search_maps_knobs_unwraps_and_bounds_results() -> TestResult<(
         1200
     );
     assert_eq!(response.citations.len(), 20);
+    assert_eq!(
+        response.provider_data.ok_or("missing provider data")?["searchId"],
+        "req-1"
+    );
+    Ok(())
+}
+
+#[test]
+fn exa_backend_routes_forward_exa_bodies() -> TestResult<()> {
+    let cases = [
+        (
+            "exa_get_contents",
+            json!({"urls":["https://a"],"query":"pricing"}),
+            "/agent-integrations/exa/contents",
+            json!({"urls":["https://a"],"text":true,"highlights":{"query":"pricing"}}),
+        ),
+        (
+            "exa_find_similar",
+            json!({"url":"https://a","max_results":3}),
+            "/agent-integrations/exa/findSimilar",
+            json!({"url":"https://a","numResults":3}),
+        ),
+        (
+            "exa_answer",
+            json!({"query":"why","include_text":true}),
+            "/agent-integrations/exa/answer",
+            json!({"query":"why","text":true}),
+        ),
+    ];
+    for (name, arguments, path, body) in cases {
+        assert_eq!(exa_request(&request(name, arguments))?, (path.into(), body));
+    }
+    assert_eq!(
+        exa_request(&request("exa_search", json!({"query":" "}))).err(),
+        Some(Error::InvalidArguments)
+    );
+    assert_eq!(
+        exa_request(&request("exa_other", json!({}))).err(),
+        Some(Error::UnavailableTool("exa_other".into()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn exa_backend_answer_normalizes_answer_and_citations() -> TestResult<()> {
+    let (url, server) = mock(
+        200,
+        json!({"success":true,"data":{"answer":"Because.","citations":[{"id":"1","url":"https://a","title":"A"},{"id":"2","url":"https://b","title":null}],"costUsd":0.01}}),
+    )
+    .await?;
+    let provider = BuiltinProvider {
+        name: "exa",
+        client: Client::new(),
+    };
+    let response = provider
+        .run(
+            &backend_route(),
+            &backend(url, BackendAuthMode::Session),
+            &request("exa_answer", json!({"query":"why"})),
+        )
+        .await?;
+    let sent = server.await??;
+    assert!(sent.starts_with("POST /agent-integrations/exa/answer "));
+    assert_eq!(response.answer.as_deref(), Some("Because."));
+    assert_eq!(response.status, SearchStatus::Ok);
+    assert_eq!(
+        response
+            .citations
+            .iter()
+            .map(|citation| citation.url.as_str())
+            .collect::<Vec<_>>(),
+        ["https://a", "https://b"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn http_failures_map_to_stable_codes() -> TestResult<()> {
+    for (status, body, expected) in [
+        (402, json!({"success":false}), Error::InsufficientBalance),
+        (
+            400,
+            json!({"success":false,"error":"Insufficient balance"}),
+            Error::InsufficientBalance,
+        ),
+        (
+            400,
+            json!({"success":false,"error":"Insufficient budget","errorCode":"USER_INSUFFICIENT_CREDITS"}),
+            Error::InsufficientBalance,
+        ),
+        (
+            429,
+            json!({"error":{"message":"slow down"}}),
+            Error::RateLimited,
+        ),
+        (
+            503,
+            json!({}),
+            Error::ProviderUnavailable("provider returned HTTP 503".into()),
+        ),
+        (
+            500,
+            json!({"success":false,"error":"Unable to estimate"}),
+            Error::ProviderUnavailable("provider returned HTTP 500".into()),
+        ),
+        (
+            400,
+            json!({"success":false,"error":"Validation failed","errorCode":"VALIDATION_ERROR"}),
+            Error::RejectedArguments("provider returned HTTP 400".into()),
+        ),
+        (
+            422,
+            json!({"message":"secret query"}),
+            Error::RejectedArguments("provider returned HTTP 422".into()),
+        ),
+        (
+            401,
+            json!({}),
+            Error::Provider("provider returned HTTP 401".into()),
+        ),
+    ] {
+        let (url, server) = mock(status, body).await?;
+        let provider = BuiltinProvider {
+            name: "exa",
+            client: Client::new(),
+        };
+        let error = provider
+            .run(
+                &backend_route(),
+                &backend(url, BackendAuthMode::Session),
+                &request("exa_search", json!({"query":"secret query"})),
+            )
+            .await
+            .err()
+            .ok_or("expected provider error")?;
+        server.await??;
+        assert!(!error.to_string().contains("secret query"));
+        assert_eq!(error, expected, "HTTP {status}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn direct_provider_statuses_share_the_classification() -> TestResult<()> {
+    for (status, expected) in [
+        (402, Error::InsufficientBalance),
+        (432, Error::InsufficientBalance),
+        (429, Error::RateLimited),
+        (
+            502,
+            Error::ProviderUnavailable("provider returned HTTP 502".into()),
+        ),
+    ] {
+        let (url, server) = mock(status, json!({"detail":"private"})).await?;
+        let error = direct::run(
+            &Client::new(),
+            "tavily",
+            &ProviderConfig {
+                base_url: Some(url),
+                credential: Some("tavily-key".into()),
+                ..ProviderConfig::default()
+            },
+            &request("tavily_search", json!({"query":"q"})),
+        )
+        .await
+        .err()
+        .ok_or("expected provider error")?;
+        server.await??;
+        assert_eq!(error, expected, "HTTP {status}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn unreachable_provider_is_unavailable() -> TestResult<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    drop(listener);
+    let provider = BuiltinProvider {
+        name: "exa",
+        client: Client::new(),
+    };
+    let error = provider
+        .run(
+            &backend_route(),
+            &backend(url, BackendAuthMode::Session),
+            &request("exa_search", json!({"query":"q"})),
+        )
+        .await
+        .err()
+        .ok_or("expected provider error")?;
+    assert_eq!(
+        error,
+        Error::ProviderUnavailable("provider transport failed".into())
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn gemini_grounding_normalizes_supported_chunks_first() -> TestResult<()> {
+    let (url, server) = mock(
+        200,
+        json!({"success":true,"data":{"candidates":[{
+            "content":{"parts":[{"text":"thinking","thought":true},{"text":"Rust is "},{"text":"fast."}]},
+            "groundingMetadata":{
+                "webSearchQueries":["rust speed"],
+                "groundingChunks":[
+                    {"web":{"uri":"https://unused","title":"unused.test"}},
+                    {"web":{"uri":"https://second","title":"second.test"}},
+                    {"web":{"uri":"https://first","title":"first.test"}},
+                    {"retrievedContext":{"uri":"gs://private"}}
+                ],
+                "groundingSupports":[
+                    {"segment":{"text":"Rust is"},"groundingChunkIndices":[2,9]},
+                    {"segment":{"text":"fast."},"groundingChunkIndices":[1,2]}
+                ]
+            }
+        }],"costUsd":0.002}}),
+    )
+    .await?;
+    let provider = BuiltinProvider {
+        name: "gemini",
+        client: Client::new(),
+    };
+    let response = provider
+        .run(
+            &backend_route(),
+            &backend(url, BackendAuthMode::Session),
+            &request("gemini_agentic_search", json!({"query":"is rust fast"})),
+        )
+        .await?;
+    let sent = server.await??;
+    assert_eq!(
+        sent_body(&sent)?,
+        json!({"contents":[{"parts":[{"text":"is rust fast"}]}],"tools":[{"googleSearch":{}}]})
+    );
+    assert_eq!(response.answer.as_deref(), Some("Rust is fast."));
+    assert_eq!(
+        response
+            .citations
+            .iter()
+            .map(|citation| (citation.url.as_str(), citation.title.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("https://first", Some("first.test")),
+            ("https://second", Some("second.test")),
+            ("https://unused", Some("unused.test"))
+        ]
+    );
     Ok(())
 }
 
@@ -484,53 +758,13 @@ async fn upstream_error_does_not_echo_sensitive_body() -> TestResult<()> {
     server.await??;
     assert_eq!(
         error.to_string(),
-        "provider request failed: provider returned HTTP 400"
+        "provider rejected the request arguments: provider returned HTTP 400"
     );
     Ok(())
 }
 
 #[test]
 fn provider_request_mappings_preserve_legacy_knobs() -> TestResult<()> {
-    let cases = [
-        (
-            "parallel_extract",
-            json!({"urls":["https://a"],"full_content":true,"excerpts":false}),
-            "/agent-integrations/parallel/extract",
-            "fullContent",
-        ),
-        (
-            "parallel_chat",
-            json!({"model":"core","messages":[{"role":"user","content":"hello"}]}),
-            "/agent-integrations/parallel/chat",
-            "messages",
-        ),
-        (
-            "parallel_research",
-            json!({"input":"topic","processor":"base","output_schema":{},"timeout_seconds":600}),
-            "/agent-integrations/parallel/research",
-            "timeoutSeconds",
-        ),
-        (
-            "parallel_enrich",
-            json!({"input":"entity","processor":"base","output_schema":{},"timeout_seconds":600}),
-            "/agent-integrations/parallel/enrich",
-            "outputSchema",
-        ),
-        (
-            "parallel_dataset",
-            json!({"objective":"list","entity_type":"company","match_conditions":[{"name":"x"}],"generator":"pro","match_limit":5}),
-            "/agent-integrations/parallel/dataset",
-            "matchConditions",
-        ),
-    ];
-    for (name, arguments, path, field) in cases {
-        let (actual_path, body) = parallel_request(&request(name, arguments))?;
-        assert_eq!(actual_path, path);
-        assert!(body.get(field).is_some(), "{name} missing {field}");
-        if name == "parallel_research" {
-            assert_eq!(body["wait"], true);
-        }
-    }
     let tinyfish_cases = [
         (
             "tinyfish_search",
@@ -663,27 +897,10 @@ async fn deep_research_last_poll_redacts_failure() -> TestResult<()> {
 }
 
 #[tokio::test]
-async fn parallel_dataset_nested_queued_status_keeps_run_id() -> TestResult<()> {
-    let (url, server) = mock(200, json!({"success":true,"data":{"findallId":"dataset-company","status":{"state":"queued","entityType":"company"},"matchLimit":10,"costUsd":0.07}})).await?;
-    let provider = BuiltinProvider {
-        name: "parallel",
-        client: Client::new(),
-    };
-    let response = provider.run(&ProviderConfig { route: ProviderRoute::Backend, ..ProviderConfig::default() }, &backend(url, BackendAuthMode::ApiKey), &request("parallel_dataset", json!({"objective":"list","entity_type":"company","match_conditions":[{"name":"x"}]}))).await?;
-    server.await??;
-    assert_eq!(response.status, SearchStatus::InProgress);
-    assert_eq!(
-        response.provider_data.ok_or("missing provider data")?["findallId"],
-        "dataset-company"
-    );
-    Ok(())
-}
-
-#[tokio::test]
 async fn backend_failure_envelope_is_redacted() -> TestResult<()> {
     let (url, server) = mock(200, json!({"success":false,"message":"secret query"})).await?;
     let provider = BuiltinProvider {
-        name: "parallel",
+        name: "exa",
         client: Client::new(),
     };
     let error = provider
@@ -693,10 +910,7 @@ async fn backend_failure_envelope_is_redacted() -> TestResult<()> {
                 ..ProviderConfig::default()
             },
             &backend(url, BackendAuthMode::Session),
-            &request(
-                "parallel_search",
-                json!({"objective":"secret query","search_queries":["secret query"]}),
-            ),
+            &request("exa_search", json!({"query":"secret query"})),
         )
         .await
         .err()
@@ -706,6 +920,22 @@ async fn backend_failure_envelope_is_redacted() -> TestResult<()> {
         error.to_string(),
         "provider request failed: backend rejected provider request"
     );
+    let (url, server) = mock(
+        200,
+        json!({"success":false,"errorCode":"USER_INSUFFICIENT_CREDITS"}),
+    )
+    .await?;
+    let error = provider
+        .run(
+            &backend_route(),
+            &backend(url, BackendAuthMode::Session),
+            &request("exa_search", json!({"query":"q"})),
+        )
+        .await
+        .err()
+        .ok_or("expected provider error")?;
+    server.await??;
+    assert_eq!(error, Error::InsufficientBalance);
     Ok(())
 }
 
@@ -1116,4 +1346,411 @@ async fn direct_rejects_backend_route_and_redacts_upstream_error() -> TestResult
     assert!(!error.to_string().contains("private-query"));
     assert!(!error.to_string().contains("exa-secret"));
     Ok(())
+}
+
+#[test]
+fn normalization_handles_gemini_agentic_search_answers() {
+    let response = normalize(
+        "gemini",
+        "gemini_agentic_search",
+        &json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "grounded answer"}
+                        ]
+                    }
+                }
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("grounded answer".to_string()));
+    assert_eq!(response.status, SearchStatus::Ok);
+}
+
+#[test]
+fn normalization_handles_gemini_deep_research_answers() {
+    let response = normalize(
+        "gemini",
+        "gemini_deep_research",
+        &json!({
+            "steps": [
+                {"content": [{"text": "step 1"}]},
+                {"content": [{"text": "final answer"}]}
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("final answer".to_string()));
+    assert_eq!(response.status, SearchStatus::Ok);
+}
+
+#[test]
+fn normalization_handles_tinyfish_agent_run_results() {
+    let response = normalize(
+        "tinyfish",
+        "tinyfish_agent_run",
+        &json!({"result": "agent result"}),
+    );
+    assert_eq!(response.answer, Some("agent result".to_string()));
+}
+
+#[test]
+fn normalization_handles_tinyfish_fetch_results() {
+    let response = normalize(
+        "tinyfish",
+        "tinyfish_fetch",
+        &json!({
+            "results": [
+                {"text": "fetched content"}
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("fetched content".to_string()));
+}
+
+#[test]
+fn normalization_processes_grounding_citations() {
+    let response = normalize(
+        "gemini",
+        "gemini_agentic_search",
+        &json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "grounded answer"}
+                        ]
+                    },
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            {"web": {"uri": "https://example.com", "title": "Example"}}
+                        ],
+                        "groundingSupports": [
+                            {"groundingChunkIndices": [0]}
+                        ]
+                    }
+                }
+            ]
+        }),
+    );
+    assert!(
+        response
+            .citations
+            .iter()
+            .any(|c| c.url == "https://example.com")
+    );
+}
+
+#[test]
+fn normalization_handles_basis_citations() {
+    let response = normalize(
+        "gemini",
+        "gemini_search",
+        &json!({
+            "basis": [
+                {"url": "https://basis.com", "title": "Basis Source"}
+            ]
+        }),
+    );
+    assert!(
+        response
+            .citations
+            .iter()
+            .any(|c| c.url == "https://basis.com")
+    );
+}
+
+#[test]
+fn normalization_handles_steps_with_annotations() {
+    let response = normalize(
+        "gemini",
+        "gemini_deep_research",
+        &json!({
+            "steps": [
+                {
+                    "content": [
+                        {
+                            "text": "step content",
+                            "annotations": [
+                                {"url": "https://annotated.com", "title": "Annotation"}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }),
+    );
+    assert!(
+        response
+            .citations
+            .iter()
+            .any(|c| c.url == "https://annotated.com")
+    );
+}
+
+#[test]
+fn normalization_clips_large_answers() {
+    let large_text = "a".repeat(100_000);
+    let response = normalize("tavily", "tavily_search", &json!({"answer": large_text}));
+    assert!(response.answer.as_ref().map_or(0, String::len) <= 16384);
+}
+
+#[test]
+fn normalization_preserves_result_count_limit() {
+    let items: Vec<_> = (0..100)
+        .map(|i| json!({"url": format!("https://test.com/{i}"), "title": format!("Result {i}")}))
+        .collect();
+    let response = normalize("exa", "exa_search", &json!({"results": items}));
+    assert!(response.results.len() <= 20);
+}
+
+#[test]
+fn normalization_handles_null_segments_in_gemini() {
+    let response = normalize(
+        "gemini",
+        "gemini_agentic_search",
+        &json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "answer", "thought": true},
+                            {"text": "visible"},
+                            null
+                        ]
+                    }
+                }
+            ]
+        }),
+    );
+    assert_eq!(response.answer, Some("visible".to_string()));
+}
+
+#[test]
+fn normalization_includes_all_metadata_fields() {
+    let response = normalize(
+        "gemini",
+        "gemini_deep_research",
+        &json!({
+            "id": "run123",
+            "status": "completed",
+            "costUsd": 0.5,
+            "num_of_steps": 3
+        }),
+    );
+    assert!(
+        response
+            .provider_data
+            .as_ref()
+            .and_then(|data| data.get("id"))
+            .is_some_and(|v| v == &json!("run123"))
+    );
+}
+
+#[test]
+fn http_classification_recognizes_insufficient_balance_code() {
+    let error = super::http::classify_status(402, b"");
+    assert_eq!(error, Error::InsufficientBalance);
+    let error = super::http::classify_status(432, b"");
+    assert_eq!(error, Error::InsufficientBalance);
+}
+
+#[test]
+fn http_classification_recognizes_rate_limit() {
+    let error = super::http::classify_status(429, b"");
+    assert_eq!(error, Error::RateLimited);
+}
+
+#[test]
+fn http_classification_categorizes_invalid_arguments() {
+    let error = super::http::classify_status(400, b"");
+    assert!(matches!(error, Error::RejectedArguments(_)));
+    let error = super::http::classify_status(422, b"");
+    assert!(matches!(error, Error::RejectedArguments(_)));
+}
+
+#[test]
+fn http_classification_categorizes_unavailable() {
+    let error = super::http::classify_status(408, b"");
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+    let error = super::http::classify_status(500, b"");
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+    let error = super::http::classify_status(503, b"");
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+}
+
+#[test]
+fn http_classification_categorizes_other_errors() {
+    let error = super::http::classify_status(403, b"");
+    assert!(matches!(error, Error::Provider(_)));
+}
+
+#[test]
+fn http_classification_reads_backend_error_codes() {
+    let body = json!({"errorCode": "USER_INSUFFICIENT_CREDITS"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+
+    let body = json!({"error": {"code": "RATE_LIMITED"}}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::RateLimited);
+
+    let body = json!({"code": "UPSTREAM_UNAVAILABLE"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert!(matches!(error, Error::ProviderUnavailable(_)));
+}
+
+#[test]
+fn http_classification_reads_error_messages() {
+    let body = json!({"message": "insufficient balance"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+
+    let body = json!({"error": {"message": "insufficient credits"}}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+
+    let body = json!({"error": "insufficient budget"}).to_string();
+    let error = super::http::classify_status(200, body.as_bytes());
+    assert_eq!(error, Error::InsufficientBalance);
+}
+
+#[test]
+fn grounding_citations_stay_bounded_and_referenced_first() {
+    let chunks: Vec<Value> = (0..500)
+        .map(
+            |i| json!({"web": {"uri": format!("https://g.example/{i}"), "title": format!("t{i}")}}),
+        )
+        .collect();
+    let supports: Vec<Value> = (0..2_000)
+        .map(|i| json!({"groundingChunkIndices": [499 - (i % 3), 10_000]}))
+        .collect();
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    assert_eq!(normalized.citations.len(), MAX_CITATIONS);
+    let urls: Vec<&str> = normalized
+        .citations
+        .iter()
+        .map(|c| c.url.as_str())
+        .collect();
+    assert_eq!(
+        &urls[..4],
+        &[
+            "https://g.example/499",
+            "https://g.example/498",
+            "https://g.example/497",
+            "https://g.example/0"
+        ],
+        "referenced chunks come first, out-of-range indices are ignored"
+    );
+}
+
+#[test]
+fn grounding_citations_skip_unusable_chunks_without_spending_the_citation_limit() {
+    // A referenced chunk with no web URI (or an empty one) can never become a
+    // citation (see the `web`/`uri` check below), so it must not consume one
+    // of the MAX_CITATIONS ordering slots ahead of a later, usable chunk.
+    let mut chunks: Vec<Value> = (0..MAX_CITATIONS)
+        .map(|_| json!({"retrievedContext": {"uri": "https://not-web.example"}}))
+        .collect();
+    chunks.push(json!({"web": {"uri": "", "title": "empty"}}));
+    chunks.push(json!({"web": {"uri": "https://g.example/usable", "title": "usable"}}));
+    let supports: Vec<Value> = (0..chunks.len())
+        .map(|i| json!({"groundingChunkIndices": [i]}))
+        .collect();
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    assert_eq!(
+        normalized.citations.len(),
+        1,
+        "only the one usable chunk becomes a citation"
+    );
+    assert_eq!(normalized.citations[0].url, "https://g.example/usable");
+}
+
+#[test]
+fn grounding_citations_do_not_let_duplicate_urls_crowd_out_distinct_ones() {
+    // `add_citation` drops a duplicate URL, so a referenced chunk that repeats
+    // an already-selected URL must not consume one of the MAX_CITATIONS
+    // ordering slots ahead of a later, distinct URL.
+    let mut chunks: Vec<Value> = (0..MAX_CITATIONS)
+        .map(|_| json!({"web": {"uri": "https://g.example/repeated", "title": "dup"}}))
+        .collect();
+    chunks.push(json!({"web": {"uri": "https://g.example/distinct", "title": "distinct"}}));
+    let supports: Vec<Value> = (0..chunks.len())
+        .map(|i| json!({"groundingChunkIndices": [i]}))
+        .collect();
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    let urls: Vec<&str> = normalized
+        .citations
+        .iter()
+        .map(|c| c.url.as_str())
+        .collect();
+    assert_eq!(
+        urls,
+        ["https://g.example/repeated", "https://g.example/distinct"],
+        "the repeated URL is added once, and the distinct URL still gets a slot"
+    );
+}
+
+#[test]
+fn gemini_answer_stops_accumulating_once_the_char_limit_is_reached() {
+    // `gemini_text` must not concatenate every part before clipping: it
+    // accumulates only up to MAX_ANSWER_CHARS, so the character content past
+    // the limit is never even appended to the output string.
+    let chunk = "x".repeat(500);
+    let parts: Vec<Value> = (0..50).map(|_| json!({"text": chunk.clone()})).collect();
+    let response = json!({"candidates": [{"content": {"parts": parts}}]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    let expected = chunk.repeat(24) + &"x".repeat(MAX_ANSWER_CHARS - 24 * 500);
+    assert_eq!(expected.chars().count(), MAX_ANSWER_CHARS);
+    assert_eq!(normalized.answer, Some(expected));
+}
+
+#[test]
+fn grounding_citations_cap_the_input_chunks_examined() {
+    // Chunks past MAX_GROUNDING_CHUNKS are never considered, bounding
+    // traversal and the `seen` allocation to a constant regardless of how
+    // large the provider's grounding payload is.
+    let beyond_cap = MAX_GROUNDING_CHUNKS + 100;
+    let chunks: Vec<Value> = (0..beyond_cap)
+        .map(
+            |i| json!({"web": {"uri": format!("https://g.example/{i}"), "title": format!("t{i}")}}),
+        )
+        .collect();
+    // Reference the very last chunk, which sits past the cap, ahead of an
+    // early, in-bounds chunk.
+    let supports = vec![
+        json!({"groundingChunkIndices": [beyond_cap - 1]}),
+        json!({"groundingChunkIndices": [0]}),
+    ];
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    let urls: Vec<&str> = normalized
+        .citations
+        .iter()
+        .map(|c| c.url.as_str())
+        .collect();
+    assert!(
+        !urls.contains(&format!("https://g.example/{}", beyond_cap - 1).as_str()),
+        "a chunk past MAX_GROUNDING_CHUNKS is never selected: {urls:?}"
+    );
+    assert!(
+        urls.contains(&"https://g.example/0"),
+        "an in-bounds chunk is still selected: {urls:?}"
+    );
 }
