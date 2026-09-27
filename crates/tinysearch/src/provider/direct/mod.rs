@@ -67,7 +67,7 @@ async fn send(client: &Client, config: &ProviderConfig, prepared: Prepared) -> R
 /// The Exa API path and body for an Exa tool, shared by the direct and
 /// managed backend routes.
 pub(super) fn exa_body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
-    exa::request_body(request)
+    exa::exa_body(request)
 }
 
 fn normalize_response(
