@@ -169,11 +169,11 @@ fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
     };
     let mut selected_urls: std::collections::HashSet<&str> = std::collections::HashSet::new();
     // Then the chunks no support referenced, in document order.
-    for index in referenced.chain(0..chunks.len()) {
+    for index in referenced.chain(0..chunk_count) {
         if order.len() >= MAX_CITATIONS {
             break;
         }
-        if index < chunks.len()
+        if index < chunk_count
             && !seen[index]
             && let Some(url) = usable_url(index)
         {
