@@ -73,7 +73,9 @@ impl Fixture {
 }
 
 /// Exa, Gemini and `TinyFish` on the backend; Brave, Tavily and Deep Research
-/// with direct keys. Each provider answers with its scripted outcome.
+/// with direct keys. Parallel is registered but configured only by the tests
+/// that opt in (see [`with_parallel`]). Each provider answers with its
+/// scripted outcome.
 fn fixture(
     outcomes: &[(&'static str, Failure)],
     configure: impl FnOnce(&mut SearchConfig),
@@ -108,6 +110,7 @@ fn fixture(
         "brave",
         "tavily",
         "gemini_deep_research",
+        "parallel",
     ] {
         let failure = outcomes
             .iter()
@@ -446,5 +449,249 @@ fn answer_order_honours_depth() {
     assert_eq!(
         answer_order(vec![DEEP_RESEARCH.to_owned()], &quick),
         [DEEP_RESEARCH]
+    );
+}
+
+/// Configures Parallel with its own direct key.
+fn with_parallel(config: &mut SearchConfig) {
+    config.providers.insert(
+        "parallel".into(),
+        ProviderConfig {
+            credential: Some("parallel-key".into()),
+            ..ProviderConfig::default()
+        },
+    );
+}
+
+/// Only Parallel, with its own key: it must serve every role alone.
+fn parallel_only(config: &mut SearchConfig) {
+    config.providers.clear();
+    config.backend.credential = None;
+    with_parallel(config);
+}
+
+#[tokio::test]
+async fn parallel_serves_every_role_with_its_own_key() -> Result<()> {
+    let fixture = fixture(&[], parallel_only);
+    let listed = fixture.service.list_tools().tools;
+    assert_eq!(
+        listed
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>(),
+        [tools::WEB_SEARCH, tools::WEB_ANSWER, tools::WEB_CONTENTS]
+    );
+    assert_eq!(
+        listed[1].parameters["properties"]["depth"]["enum"],
+        json!(["quick"])
+    );
+
+    let response = fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_SEARCH,
+            json!({"query":"rust","max_results":3}),
+        ))
+        .await?;
+    assert_eq!(response.provider, "parallel");
+    assert_eq!(response.role, Some(Role::Search));
+    let response = fixture
+        .service
+        .execute_tool(call(tools::WEB_ANSWER, json!({"query":"why"})))
+        .await?;
+    assert_eq!(response.role, Some(Role::Answer));
+    let response = fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_CONTENTS,
+            json!({"urls":["https://example.test"],"query":"pricing"}),
+        ))
+        .await?;
+    assert_eq!(response.role, Some(Role::Contents));
+
+    let sent = fixture.calls("parallel");
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[0].name, "parallel_search");
+    assert_eq!(
+        sent[0].arguments,
+        json!({"objective":"rust","search_queries":["rust"],"num_results":3})
+    );
+    assert_eq!(sent[1].name, "parallel_chat");
+    assert_eq!(
+        sent[1].arguments,
+        json!({"model":"speed","messages":[{"role":"user","content":"why"}]})
+    );
+    assert_eq!(sent[2].name, "parallel_extract");
+    assert_eq!(
+        sent[2].arguments,
+        json!({"urls":["https://example.test"],"objective":"pricing","full_content":true})
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn parallel_role_arguments_omit_absent_optionals() -> Result<()> {
+    let fixture = fixture(&[], parallel_only);
+    fixture
+        .service
+        .execute_tool(call(tools::WEB_SEARCH, json!({"query":"rust"})))
+        .await?;
+    fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_CONTENTS,
+            json!({"urls":["https://example.test"]}),
+        ))
+        .await?;
+    let sent = fixture.calls("parallel");
+    assert_eq!(
+        sent[0].arguments,
+        json!({"objective":"rust","search_queries":["rust"]})
+    );
+    assert_eq!(
+        sent[1].arguments,
+        json!({"urls":["https://example.test"],"full_content":true})
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn parallel_is_never_usable_on_the_backend_route() {
+    let fixture = fixture(&[], |config| {
+        parallel_only(config);
+        config.backend.credential = Some("session".into());
+        if let Some(parallel) = config.providers.get_mut("parallel") {
+            parallel.route = ProviderRoute::Backend;
+        }
+    });
+    assert!(fixture.service.list_tools().tools.is_empty());
+    for (tool, arguments) in [
+        (tools::WEB_SEARCH, json!({"query":"rust"})),
+        (tools::WEB_ANSWER, json!({"query":"why"})),
+        (
+            tools::WEB_CONTENTS,
+            json!({"urls":["https://example.test"]}),
+        ),
+    ] {
+        assert_eq!(
+            fixture
+                .service
+                .execute_tool(call(tool, arguments))
+                .await
+                .err(),
+            Some(Error::UnavailableTool(tool.into()))
+        );
+    }
+    assert!(fixture.calls("parallel").is_empty());
+}
+
+#[tokio::test]
+async fn role_calls_fall_back_into_parallel() -> Result<()> {
+    let fixture = fixture(
+        &[
+            ("exa", down),
+            ("brave", broke),
+            ("tavily", throttled),
+            ("gemini", down),
+        ],
+        with_parallel,
+    );
+    let response = fixture
+        .service
+        .execute_tool(call(tools::WEB_SEARCH, json!({"query":"rust"})))
+        .await?;
+    assert_eq!(response.provider, "parallel");
+    assert_eq!(response.fallback_from, ["exa", "brave", "tavily"]);
+    assert!(fixture.calls("tinyfish").is_empty());
+
+    let response = fixture
+        .service
+        .execute_tool(call(tools::WEB_ANSWER, json!({"query":"why"})))
+        .await?;
+    assert_eq!(response.provider, "parallel");
+    assert_eq!(response.fallback_from, ["gemini", "exa"]);
+
+    let response = fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_CONTENTS,
+            json!({"urls":["https://example.test"]}),
+        ))
+        .await?;
+    assert_eq!(response.provider, "parallel");
+    assert_eq!(response.fallback_from, ["exa", "tavily"]);
+    assert_eq!(
+        fixture
+            .calls("parallel")
+            .iter()
+            .map(|call| call.name.as_str())
+            .collect::<Vec<_>>(),
+        ["parallel_search", "parallel_chat", "parallel_extract"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn deep_answers_skip_parallel() -> Result<()> {
+    let fixture = fixture(
+        &[
+            ("gemini_deep_research", down),
+            ("gemini", down),
+            ("exa", down),
+        ],
+        with_parallel,
+    );
+    let result = fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_ANSWER,
+            json!({"query":"why","depth":"deep"}),
+        ))
+        .await;
+    assert!(matches!(result, Err(Error::ProviderUnavailable(_))));
+    assert_eq!(fixture.calls("gemini_deep_research").len(), 1);
+    assert!(fixture.calls("parallel").is_empty());
+
+    assert_eq!(
+        fixture
+            .service
+            .execute_tool(call(
+                tools::WEB_ANSWER,
+                json!({"query":"why","depth":"deep","provider":"parallel"}),
+            ))
+            .await
+            .err(),
+        Some(Error::InvalidArguments)
+    );
+    assert!(fixture.calls("parallel").is_empty());
+
+    let response = fixture
+        .service
+        .execute_tool(call(
+            tools::WEB_ANSWER,
+            json!({"query":"why","provider":"parallel"}),
+        ))
+        .await?;
+    assert_eq!(response.provider, "parallel");
+    Ok(())
+}
+
+#[test]
+fn answer_order_drops_quick_only_providers_for_deep() {
+    let usable = vec![
+        "gemini".to_owned(),
+        DEEP_RESEARCH.to_owned(),
+        "exa".to_owned(),
+        "parallel".to_owned(),
+    ];
+    assert_eq!(
+        answer_order(usable.clone(), &Map::new()),
+        ["gemini", "exa", "parallel"]
+    );
+    let mut deep = Map::new();
+    deep.insert("depth".into(), json!("deep"));
+    assert_eq!(
+        answer_order(usable, &deep),
+        [DEEP_RESEARCH, "gemini", "exa"]
     );
 }
