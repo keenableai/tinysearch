@@ -1491,7 +1491,7 @@ fn normalization_handles_steps_with_annotations() {
 
 #[test]
 fn normalization_clips_large_answers() {
-    let large_text = "a".repeat(100000);
+    let large_text = "a".repeat(100_000);
     let response = normalize("tavily", "tavily_search", &json!({"answer": large_text}));
     assert!(response.answer.as_ref().map(String::len).unwrap_or(0) <= 16384);
 }
