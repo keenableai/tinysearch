@@ -1434,7 +1434,12 @@ fn normalization_processes_grounding_citations() {
             ]
         }),
     );
-    assert!(response.citations.iter().any(|c| c.url == "https://example.com"));
+    assert!(
+        response
+            .citations
+            .iter()
+            .any(|c| c.url == "https://example.com")
+    );
 }
 
 #[test]
@@ -1448,7 +1453,12 @@ fn normalization_handles_basis_citations() {
             ]
         }),
     );
-    assert!(response.citations.iter().any(|c| c.url == "https://basis.com"));
+    assert!(
+        response
+            .citations
+            .iter()
+            .any(|c| c.url == "https://basis.com")
+    );
 }
 
 #[test]
@@ -1471,17 +1481,18 @@ fn normalization_handles_steps_with_annotations() {
             ]
         }),
     );
-    assert!(response.citations.iter().any(|c| c.url == "https://annotated.com"));
+    assert!(
+        response
+            .citations
+            .iter()
+            .any(|c| c.url == "https://annotated.com")
+    );
 }
 
 #[test]
 fn normalization_clips_large_answers() {
     let large_text = "a".repeat(100000);
-    let response = normalize(
-        "tavily",
-        "tavily_search",
-        &json!({"answer": large_text}),
-    );
+    let response = normalize("tavily", "tavily_search", &json!({"answer": large_text}));
     assert!(response.answer.as_ref().map(|a| a.len()).unwrap_or(0) <= 16384);
 }
 
