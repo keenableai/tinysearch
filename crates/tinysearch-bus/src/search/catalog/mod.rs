@@ -17,6 +17,7 @@ pub const PROVIDERS: &[&str] = &[
     "gemini",
     "gemini_deep_research",
     "tinyfish",
+    "parallel",
     "brave",
     "querit",
     "tavily",
@@ -25,7 +26,8 @@ pub const PROVIDERS: &[&str] = &[
 ];
 
 /// Providers that support [`ProviderRoute::Backend`] through the managed
-/// backend. Only these become usable from a backend credential.
+/// backend. Only these become usable from a backend credential; every other
+/// provider, including Parallel, is direct-only (bring your own key).
 pub const BACKEND_PROVIDERS: &[&str] = &["exa", "gemini", "tinyfish"];
 
 /// Providers usable directly with their own private credential.
@@ -37,6 +39,7 @@ const KEYED_DIRECT_PROVIDERS: &[&str] = &[
     "gemini",
     "gemini_deep_research",
     "seltz",
+    "parallel",
 ];
 
 /// Gemini models the managed backend accepts for grounded generation.
@@ -176,6 +179,7 @@ fn direct_provider_specs() -> BTreeMap<String, Vec<ToolSpec>> {
     )];
     [
         ("exa".into(), exa),
+        ("parallel".into(), parallel_specs()),
         ("brave".into(), brave),
         ("querit".into(), querit),
         ("tavily".into(), tavily),
@@ -184,13 +188,82 @@ fn direct_provider_specs() -> BTreeMap<String, Vec<ToolSpec>> {
     .into()
 }
 
+/// Parallel's direct API operations. Parallel has no managed backend route, so
+/// these are the direct schemas: current search modes, extract without the
+/// backend-only `excerpts` switch, async runs without a server-side wait, and
+/// status tools that resume a Task or `FindAll` run by ID.
+fn parallel_specs() -> Vec<ToolSpec> {
+    let text = json!({"type":"string","minLength":1});
+    let urls = |max| json!({"type":"array","items":{"type":"string","minLength":1},"minItems":1,"maxItems":max});
+    let input = json!({"oneOf":[{"type":"string","minLength":1},{"type":"object"}]});
+    let processor = json!({"type":"string","enum":["lite","base","core","ultra"]});
+    let id = json!({"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$"});
+    vec![
+        tool(
+            "parallel_search",
+            "Search the web with Parallel",
+            json!({"objective":text,"search_queries":urls(10),"mode":{"type":"string","enum":["turbo","fast","basic","advanced"]},"num_results":{"type":"integer","minimum":1,"maximum":50},"max_characters_per_excerpt":{"type":"integer","minimum":100,"maximum":10000}}),
+            &["objective", "search_queries"],
+        ),
+        tool(
+            "parallel_extract",
+            "Extract web pages with Parallel",
+            json!({"urls":urls(20),"objective":text,"full_content":{"type":"boolean"}}),
+            &["urls"],
+        ),
+        tool(
+            "parallel_chat",
+            "Ask Parallel's web grounded chat",
+            json!({"model":{"type":"string","enum":["speed","lite","base","core"]},"messages":{"type":"array","minItems":1,"items":{"type":"object","properties":{"role":{"type":"string","enum":["system","user","assistant"]},"content":text},"required":["role","content"],"additionalProperties":false}}}),
+            &["model", "messages"],
+        ),
+        tool(
+            "parallel_research",
+            "Run Parallel research",
+            json!({"input":input,"processor":processor,"output_schema":{"type":"object"}}),
+            &["input", "processor"],
+        ),
+        tool(
+            "parallel_enrich",
+            "Enrich an entity with Parallel",
+            json!({"input":input,"processor":processor,"output_schema":{"type":"object"}}),
+            &["input", "processor", "output_schema"],
+        ),
+        tool(
+            "parallel_dataset",
+            "Build a dataset with Parallel",
+            json!({"objective":text,"entity_type":text,"match_conditions":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","properties":{"name":text,"description":text},"required":["name","description"],"additionalProperties":false}},"generator":{"type":"string","enum":["preview","base","core","pro"]},"match_limit":{"type":"integer","minimum":5,"maximum":1000}}),
+            &["objective", "entity_type", "match_conditions"],
+        ),
+        tool(
+            "parallel_research_status",
+            "Check a Parallel research run and fetch its result",
+            json!({"run_id":id}),
+            &["run_id"],
+        ),
+        tool(
+            "parallel_enrich_status",
+            "Check a Parallel enrichment run and fetch its result",
+            json!({"run_id":id}),
+            &["run_id"],
+        ),
+        tool(
+            "parallel_dataset_status",
+            "Check a Parallel dataset run and fetch its result",
+            json!({"findall_id":id}),
+            &["findall_id"],
+        ),
+    ]
+}
+
 /// Filters declared providers by configuration and available credentials.
 ///
 /// A provider is available only when the host configured it explicitly and
 /// enabled it, and its chosen route is usable: [`ProviderRoute::Backend`]
 /// needs a backend credential and a provider in [`BACKEND_PROVIDERS`];
 /// [`ProviderRoute::Direct`] needs the provider's own non-empty credential
-/// (or, for `searxng`, a non-empty base URL). Tool schemas are narrowed to
+/// (or, for `searxng`, a non-empty base URL). Parallel is direct-only: a
+/// backend route leaves it unavailable. Tool schemas are narrowed to
 /// what the chosen route accepts.
 #[must_use]
 pub fn configured_provider_tools(
