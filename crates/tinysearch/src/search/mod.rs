@@ -126,7 +126,6 @@ impl SearchService {
                     .into_iter()
                     .next()
             })
-            .or_else(|| available.keys().next().cloned())
             .ok_or(Error::MissingProvider)?;
         let first_tool = available
             .get(&selected)
