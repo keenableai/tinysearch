@@ -29,6 +29,8 @@ impl SearchService {
             .ok_or_else(|| Error::UnavailableTool(request.name.clone()))?;
         let spec = role_tool_specs(available, &self.config.presentation, role)
             .ok_or_else(|| Error::UnavailableTool(request.name.clone()))?;
+        let mut request = request;
+        downgrade_unservable_depth(role, &spec, &mut request.arguments);
         validate_arguments(&spec, &request.arguments)?;
         let args = request
             .arguments
@@ -141,3 +143,26 @@ pub(super) fn provider_arguments(
 
 #[cfg(test)]
 mod test;
+
+/// A caller may send `depth: "deep"` from an older declaration (a resumed
+/// thread) after deep research stopped being usable. The advertised schema no
+/// longer lists it, so answer at the depth that is available instead of
+/// rejecting the call.
+fn downgrade_unservable_depth(role: Role, spec: &ToolSpec, arguments: &mut Value) {
+    if role != Role::Answer {
+        return;
+    }
+    let advertised = &spec.parameters["properties"]["depth"]["enum"];
+    let Some(args) = arguments.as_object_mut() else {
+        return;
+    };
+    let Some(depth) = args.get("depth").and_then(Value::as_str) else {
+        return;
+    };
+    let servable = advertised
+        .as_array()
+        .is_some_and(|depths| depths.iter().any(|d| d.as_str() == Some(depth)));
+    if !servable {
+        args.remove("depth");
+    }
+}
