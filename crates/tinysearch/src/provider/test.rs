@@ -1539,9 +1539,6 @@ fn normalization_includes_all_metadata_fields() {
             "num_of_steps": 3
         }),
     );
-    if let Some(data) = response.provider_data {
-        assert_eq!(data.get("id"), Some(&json!("run123")));
-    } else {
-        panic!("expected provider_data");
-    }
+    let data = response.provider_data.expect("expected provider_data");
+    assert_eq!(data.get("id"), Some(&json!("run123")));
 }
