@@ -134,22 +134,31 @@ fn add_grounding_citations(citations: &mut Vec<Citation>, value: &Value) {
         .filter_map(|index| usize::try_from(index).ok());
     // A chunk without a usable web URI never becomes a citation (see below),
     // so it must not consume an ordering slot that a later, usable chunk
-    // could otherwise fill.
-    let has_usable_url = |index: usize| {
+    // could otherwise fill. Nor should a chunk whose URL duplicates one
+    // already selected: `add_citation` below would just drop it, so counting
+    // it against MAX_CITATIONS here would let a duplicate crowd out a later,
+    // distinct URL.
+    let usable_url = |index: usize| -> Option<&str> {
         chunks[index]
             .get("web")
             .and_then(|web| web.get("uri"))
             .and_then(Value::as_str)
-            .is_some_and(|url| !url.is_empty())
+            .filter(|url| !url.is_empty())
     };
+    let mut selected_urls: std::collections::HashSet<&str> = std::collections::HashSet::new();
     // Then the chunks no support referenced, in document order.
     for index in referenced.chain(0..chunks.len()) {
         if order.len() >= MAX_CITATIONS {
             break;
         }
-        if index < chunks.len() && !seen[index] && has_usable_url(index) {
+        if index < chunks.len()
+            && !seen[index]
+            && let Some(url) = usable_url(index)
+        {
             seen[index] = true;
-            order.push(index);
+            if selected_urls.insert(url) {
+                order.push(index);
+            }
         }
     }
     for index in order {
