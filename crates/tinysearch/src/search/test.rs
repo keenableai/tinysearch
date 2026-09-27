@@ -2,7 +2,7 @@
 use super::*;
 use crate::SearchStatus;
 use serde_json::json;
-use tinysearch_bus::{PresentationConfig, SearchStatus as Status};
+use tinysearch_bus::{PresentationConfig, ProviderRoute, SearchStatus as Status};
 
 struct MockProvider;
 impl SearchProvider for MockProvider {
@@ -20,6 +20,8 @@ impl SearchProvider for MockProvider {
                 answer: None,
                 status: Status::Empty,
                 provider_data: None,
+                role: None,
+                fallback_from: vec![],
             })
         })
     }
@@ -28,13 +30,13 @@ fn service(mode: PresentationMode) -> SearchService {
     let mut config = SearchConfig {
         presentation: PresentationConfig {
             mode,
-            provider: None,
+            ..PresentationConfig::default()
         },
         ..SearchConfig::default()
     };
     config.backend.credential = Some("test-key".into());
     config.providers.insert(
-        "parallel".into(),
+        "tinyfish".into(),
         ProviderConfig {
             route: ProviderRoute::Backend,
             ..ProviderConfig::default()
@@ -49,7 +51,7 @@ fn service(mode: PresentationMode) -> SearchService {
     );
     let providers: BTreeMap<String, Arc<dyn SearchProvider>> = [
         (
-            "parallel".into(),
+            "tinyfish".into(),
             Arc::new(MockProvider) as Arc<dyn SearchProvider>,
         ),
         (
@@ -69,13 +71,10 @@ fn all_tools_lists_enabled_providers_in_stable_order() {
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>(),
         [
-            "parallel_search",
-            "parallel_extract",
-            "parallel_chat",
-            "parallel_research",
-            "parallel_enrich",
-            "parallel_dataset",
-            "searxng_search"
+            "searxng_search",
+            "tinyfish_search",
+            "tinyfish_fetch",
+            "tinyfish_agent_run"
         ]
     );
 }
@@ -92,7 +91,7 @@ async fn router_selects_explicit_provider() -> crate::Result<()> {
     Ok(())
 }
 #[tokio::test]
-async fn router_defaults_to_parallel_and_maps_query() -> crate::Result<()> {
+async fn router_defaults_to_the_first_search_role_provider() -> crate::Result<()> {
     use std::sync::Mutex;
     struct RecordingProvider(Arc<Mutex<Option<ExecuteToolRequest>>>);
     impl SearchProvider for RecordingProvider {
@@ -113,6 +112,8 @@ async fn router_defaults_to_parallel_and_maps_query() -> crate::Result<()> {
                     answer: None,
                     status: Status::Empty,
                     provider_data: None,
+                    role: None,
+                    fallback_from: vec![],
                 })
             })
         }
@@ -122,7 +123,7 @@ async fn router_defaults_to_parallel_and_maps_query() -> crate::Result<()> {
     config.presentation.mode = PresentationMode::Router;
     config.backend.credential = Some("test-key".into());
     config.providers.insert(
-        "parallel".into(),
+        "exa".into(),
         ProviderConfig {
             route: ProviderRoute::Backend,
             ..ProviderConfig::default()
@@ -137,7 +138,7 @@ async fn router_defaults_to_parallel_and_maps_query() -> crate::Result<()> {
     );
     let providers: BTreeMap<String, Arc<dyn SearchProvider>> = [
         (
-            "parallel".into(),
+            "exa".into(),
             Arc::new(RecordingProvider(captured.clone())) as Arc<dyn SearchProvider>,
         ),
         (
@@ -152,18 +153,15 @@ async fn router_defaults_to_parallel_and_maps_query() -> crate::Result<()> {
             arguments: json!({"query":"rust"}),
         })
         .await?;
-    assert_eq!(response.provider, "parallel");
+    assert_eq!(response.provider, "exa");
     let captured = captured
         .lock()
         .map_err(|_| Error::Provider("test capture poisoned".into()))?;
     let request = captured
         .as_ref()
         .ok_or_else(|| Error::Provider("provider request was not captured".into()))?;
-    assert_eq!(request.name, "parallel_search");
-    assert_eq!(
-        request.arguments,
-        json!({"objective":"rust","search_queries":["rust"]})
-    );
+    assert_eq!(request.name, "exa_search");
+    assert_eq!(request.arguments, json!({"query":"rust"}));
     Ok(())
 }
 #[tokio::test]
@@ -182,7 +180,7 @@ async fn rejects_unadvertised_tool_and_invalid_arguments() {
     assert_eq!(
         service
             .execute_tool(ExecuteToolRequest {
-                name: "parallel_search".into(),
+                name: "tinyfish_search".into(),
                 arguments: json!(null)
             })
             .await
@@ -202,7 +200,7 @@ async fn router_rejects_unsupported_provider_option() {
     let result = service(PresentationMode::Router)
         .execute_tool(ExecuteToolRequest {
             name: "search".into(),
-            arguments: json!({"query":"rust","provider":"parallel","unexpected":true}),
+            arguments: json!({"query":"rust","provider":"tinyfish","unexpected":true}),
         })
         .await;
     assert_eq!(
@@ -218,7 +216,7 @@ async fn catalog_rejects_missing_and_wrong_type_before_dispatch() {
         assert_eq!(
             service
                 .execute_tool(ExecuteToolRequest {
-                    name: "parallel_search".into(),
+                    name: "tinyfish_search".into(),
                     arguments,
                 })
                 .await
@@ -229,8 +227,8 @@ async fn catalog_rejects_missing_and_wrong_type_before_dispatch() {
     assert_eq!(
         service
             .execute_tool(ExecuteToolRequest {
-                name: "parallel_search".into(),
-                arguments: json!({"objective":"rust", "search_queries":["rust"], "extra": true}),
+                name: "tinyfish_search".into(),
+                arguments: json!({"query":"rust", "extra": true}),
             })
             .await
             .err(),
@@ -243,7 +241,7 @@ async fn router_rejects_invalid_provider_type_and_missing_query() {
     let service = service(PresentationMode::Router);
     for arguments in [
         json!({"provider": 7, "query":"rust"}),
-        json!({"provider":"parallel"}),
+        json!({"provider":"tinyfish"}),
     ] {
         assert_eq!(
             service
@@ -336,9 +334,9 @@ fn direct_provider_without_credential_is_hidden() {
     let mut config = SearchConfig::default();
     config
         .providers
-        .insert("parallel".into(), ProviderConfig::default());
+        .insert("tinyfish".into(), ProviderConfig::default());
     let mut providers: BTreeMap<String, Arc<dyn SearchProvider>> = BTreeMap::new();
-    providers.insert("parallel".into(), Arc::new(Keyed));
+    providers.insert("tinyfish".into(), Arc::new(Keyed));
     assert!(
         SearchService::with_providers(config.clone(), providers.clone())
             .list_tools()
@@ -346,19 +344,20 @@ fn direct_provider_without_credential_is_hidden() {
             .is_empty()
     );
     config.providers.insert(
-        "parallel".into(),
+        "tinyfish".into(),
         ProviderConfig {
             route: ProviderRoute::Backend,
             ..ProviderConfig::default()
         },
     );
     config.backend.credential = Some("secret".into());
+    config.presentation.mode = PresentationMode::AllTools;
     assert_eq!(
         SearchService::with_providers(config, providers)
             .list_tools()
             .tools
             .len(),
-        6
+        3
     );
 }
 
@@ -412,8 +411,8 @@ async fn service_rejects_disabled_and_unknown_router_target() {
     assert_eq!(
         disabled
             .execute_tool(ExecuteToolRequest {
-                name: "parallel_search".into(),
-                arguments: json!({"objective":"test"})
+                name: "tinyfish_search".into(),
+                arguments: json!({"query":"test"})
             })
             .await
             .err(),
