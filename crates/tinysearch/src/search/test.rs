@@ -191,7 +191,7 @@ async fn router_never_dispatches_search_to_a_non_search_provider() {
         })
         .await
         .unwrap_err();
-    assert!(matches!(error, Error::UnavailableTool(_) | Error::MissingProvider));
+    assert!(matches!(error, Error::UnavailableTool(name) if name == "search"));
 }
 #[tokio::test]
 async fn rejects_unadvertised_tool_and_invalid_arguments() {
