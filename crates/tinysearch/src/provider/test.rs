@@ -1615,3 +1615,36 @@ fn http_classification_reads_error_messages() {
     let error = super::http::classify_status(200, body.as_bytes());
     assert_eq!(error, Error::InsufficientBalance);
 }
+
+#[test]
+fn grounding_citations_stay_bounded_and_referenced_first() {
+    let chunks: Vec<Value> = (0..500)
+        .map(
+            |i| json!({"web": {"uri": format!("https://g.example/{i}"), "title": format!("t{i}")}}),
+        )
+        .collect();
+    let supports: Vec<Value> = (0..2_000)
+        .map(|i| json!({"groundingChunkIndices": [499 - (i % 3), 10_000]}))
+        .collect();
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    assert_eq!(normalized.citations.len(), MAX_CITATIONS);
+    let urls: Vec<&str> = normalized
+        .citations
+        .iter()
+        .map(|c| c.url.as_str())
+        .collect();
+    assert_eq!(
+        &urls[..4],
+        &[
+            "https://g.example/499",
+            "https://g.example/498",
+            "https://g.example/497",
+            "https://g.example/0"
+        ],
+        "referenced chunks come first, out-of-range indices are ignored"
+    );
+}
