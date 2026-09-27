@@ -133,8 +133,14 @@ fn direct_provider_specs() -> BTreeMap<String, Vec<ToolSpec>> {
         tool(
             "exa_get_contents",
             "Get page contents with Exa",
-            json!({"urls":urls(20),"include_summary":{"type":"boolean"},"include_highlights":{"type":"boolean"}}),
+            json!({"urls":urls(20),"query":text,"include_summary":{"type":"boolean"},"include_highlights":{"type":"boolean"}}),
             &["urls"],
+        ),
+        tool(
+            "exa_answer",
+            "Answer a question with Exa, grounded in cited web results",
+            json!({"query":text,"include_text":{"type":"boolean"}}),
+            &["query"],
         ),
     ];
     let brave = ["web", "news", "image", "video"].into_iter().map(|kind| {
@@ -179,6 +185,13 @@ fn direct_provider_specs() -> BTreeMap<String, Vec<ToolSpec>> {
 }
 
 /// Filters declared providers by configuration and available credentials.
+///
+/// A provider is available only when the host configured it explicitly and
+/// enabled it, and its chosen route is usable: [`ProviderRoute::Backend`]
+/// needs a backend credential and a provider in [`BACKEND_PROVIDERS`];
+/// [`ProviderRoute::Direct`] needs the provider's own non-empty credential
+/// (or, for `searxng`, a non-empty base URL). Tool schemas are narrowed to
+/// what the chosen route accepts.
 #[must_use]
 pub fn configured_provider_tools(
     config: &SearchConfig,
@@ -190,70 +203,53 @@ pub fn configured_provider_tools(
     specs
         .iter()
         .filter_map(|(name, tools)| {
-            let explicit = config.providers.get(name);
-            let implicit_parallel =
-                name == "parallel" && explicit.is_none() && config.backend.credential.is_some();
-            if !implicit_parallel && explicit.is_none() {
-                return None;
-            }
-            let enabled = explicit.is_none_or(|p| p.enabled);
-            let route = explicit.map_or(ProviderRoute::Backend, |p| p.route);
-            let credential_available = match route {
+            let explicit = config.providers.get(name)?;
+            let non_empty = |value: Option<&str>| value.is_some_and(|v| !v.trim().is_empty());
+            let usable = match explicit.route {
                 ProviderRoute::Backend => {
-                    config.backend.credential.is_some()
-                        && matches!(name.as_str(), "parallel" | "tinyfish" | "gemini")
+                    non_empty(config.backend.credential.as_deref())
+                        && BACKEND_PROVIDERS.contains(&name.as_str())
+                }
+                ProviderRoute::Direct if name == "searxng" => {
+                    non_empty(explicit.base_url.as_deref())
                 }
                 ProviderRoute::Direct => {
-                    (name == "searxng"
-                        && explicit.is_some_and(|p| {
-                            p.base_url
-                                .as_deref()
-                                .is_some_and(|url| !url.trim().is_empty())
-                        }))
-                        || (matches!(
-                            name.as_str(),
-                            "parallel"
-                                | "exa"
-                                | "brave"
-                                | "querit"
-                                | "tavily"
-                                | "gemini"
-                                | "gemini_deep_research"
-                                | "seltz"
-                        ) && explicit.is_some_and(|p| {
-                            p.credential
-                                .as_deref()
-                                .is_some_and(|key| !key.trim().is_empty())
-                        }))
+                    KEYED_DIRECT_PROVIDERS.contains(&name.as_str())
+                        && non_empty(explicit.credential.as_deref())
                 }
             };
-            (enabled && credential_available).then(|| {
-                let mut tools = tools.clone();
-                if name == "parallel" && route == ProviderRoute::Direct {
-                    if let Some(search) = tools.iter_mut().find(|tool| tool.name == "parallel_search") {
-                        search.parameters["properties"]["mode"] = json!({"type":"string","enum":["turbo","fast","basic","advanced"]});
-                    }
-                    if let Some(properties) = tools.iter_mut().find(|tool| tool.name == "parallel_extract")
-                        .and_then(|spec| spec.parameters.get_mut("properties"))
-                        .and_then(Value::as_object_mut) {
-                        properties.remove("excerpts");
-                    }
-                    for name in ["parallel_research", "parallel_enrich", "parallel_dataset"] {
-                        if let Some(properties) = tools.iter_mut().find(|tool| tool.name == name)
-                            .and_then(|spec| spec.parameters.get_mut("properties"))
-                            .and_then(Value::as_object_mut) {
-                            properties.remove("timeout_seconds");
-                        }
-                    }
-                    let id = json!({"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$"});
-                    tools.push(tool("parallel_research_status", "Check a Parallel research run and fetch its result", json!({"run_id":id}), &["run_id"]));
-                    tools.push(tool("parallel_enrich_status", "Check a Parallel enrichment run and fetch its result", json!({"run_id":id}), &["run_id"]));
-                    tools.push(tool("parallel_dataset_status", "Check a Parallel dataset run and fetch its result", json!({"findall_id":id}), &["findall_id"]));
-                }
-                (name.clone(), tools)
-            })
+            (explicit.enabled && usable)
+                .then(|| (name.clone(), narrow_for_route(tools, explicit.route)))
         })
         .collect()
+}
+
+/// Narrows provider schemas to the arguments the chosen route forwards.
+fn narrow_for_route(tools: &[ToolSpec], route: ProviderRoute) -> Vec<ToolSpec> {
+    let mut tools = tools.to_vec();
+    if route != ProviderRoute::Backend {
+        return tools;
+    }
+    for tool in &mut tools {
+        match tool.name.as_str() {
+            // The backend's Exa search takes only an objective and queries.
+            "exa_search" => {
+                if let Some(properties) = tool
+                    .parameters
+                    .get_mut("properties")
+                    .and_then(Value::as_object_mut)
+                {
+                    properties.retain(|key, _| key == "query");
+                }
+            }
+            "gemini_agentic_search" => {
+                tool.parameters["properties"]["model"] =
+                    json!({"type":"string","enum":GEMINI_BACKEND_MODELS});
+            }
+            _ => {}
+        }
+    }
+    tools
 }
 
 /// Selects deterministic presentation from available provider declarations.
@@ -263,6 +259,12 @@ pub fn select_tools(
     presentation: &PresentationConfig,
 ) -> ListToolsResponse {
     match presentation.mode {
+        PresentationMode::Roles => ListToolsResponse {
+            tools: Role::ALL
+                .into_iter()
+                .filter_map(|role| role_tool_specs(provider_tools, presentation, role))
+                .collect(),
+        },
         PresentationMode::AllTools => ListToolsResponse {
             tools: provider_tools.values().flatten().cloned().collect(),
         },
@@ -290,3 +292,5 @@ pub fn select_tools(
     }
 }
 
+#[cfg(test)]
+mod test;
