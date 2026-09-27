@@ -5,6 +5,20 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepared> {
+    let (path, body) = body(request)?;
+    Ok((
+        Method::POST,
+        "https://api.exa.ai",
+        path.into(),
+        Some(body),
+        vec![],
+        ("x-api-key", key.into()),
+        Duration::from_secs(35),
+    ))
+}
+
+/// Builds Exa's own request path and body for an Exa tool.
+pub(super) fn body(request: &ExecuteToolRequest) -> Result<(&'static str, Value)> {
     let args = &request.arguments;
     let (path, mut body) = match request.name.as_str() {
         "exa_search" => (
@@ -16,6 +30,13 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
             json!({"url":required_string(args,"url")?,"numResults":count(args,"max_results")}),
         ),
         "exa_get_contents" => ("/contents", json!({"urls":urls(args)?,"text":true})),
+        "exa_answer" => {
+            let mut body = json!({"query":required_string(args,"query")?});
+            if args.get("include_text") == Some(&Value::Bool(true)) {
+                body["text"] = json!(true);
+            }
+            return Ok(("/answer", body));
+        }
         _ => return Err(Error::UnavailableTool(request.name.clone())),
     };
     if request.name == "exa_search" {
@@ -31,6 +52,9 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
         }
     }
     if request.name == "exa_get_contents" {
+        if let Some(query) = args.get("query").and_then(Value::as_str) {
+            body["highlights"] = json!({"query":query});
+        }
         for (src, dst) in [
             ("include_summary", "summary"),
             ("include_highlights", "highlights"),
@@ -62,13 +86,5 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
             body["contents"] = contents;
         }
     }
-    Ok((
-        Method::POST,
-        "https://api.exa.ai",
-        path.into(),
-        Some(body),
-        vec![],
-        ("x-api-key", key.into()),
-        Duration::from_secs(35),
-    ))
+    Ok((path, body))
 }
