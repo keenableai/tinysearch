@@ -1648,3 +1648,29 @@ fn grounding_citations_stay_bounded_and_referenced_first() {
         "referenced chunks come first, out-of-range indices are ignored"
     );
 }
+
+#[test]
+fn grounding_citations_skip_unusable_chunks_without_spending_the_citation_limit() {
+    // A referenced chunk with no web URI (or an empty one) can never become a
+    // citation (see the `web`/`uri` check below), so it must not consume one
+    // of the MAX_CITATIONS ordering slots ahead of a later, usable chunk.
+    let mut chunks: Vec<Value> = (0..MAX_CITATIONS)
+        .map(|_| json!({"retrievedContext": {"uri": "https://not-web.example"}}))
+        .collect();
+    chunks.push(json!({"web": {"uri": "", "title": "empty"}}));
+    chunks.push(json!({"web": {"uri": "https://g.example/usable", "title": "usable"}}));
+    let supports: Vec<Value> = (0..chunks.len())
+        .map(|i| json!({"groundingChunkIndices": [i]}))
+        .collect();
+    let response = json!({"candidates": [{
+        "content": {"parts": [{"text": "answer"}]},
+        "groundingMetadata": {"groundingChunks": chunks, "groundingSupports": supports}
+    }]});
+    let normalized = super::normalize::normalize("gemini", "gemini_agentic_search", &response);
+    assert_eq!(
+        normalized.citations.len(),
+        1,
+        "only the one usable chunk becomes a citation"
+    );
+    assert_eq!(normalized.citations[0].url, "https://g.example/usable");
+}
