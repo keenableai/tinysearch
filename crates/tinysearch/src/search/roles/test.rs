@@ -47,10 +47,14 @@ fn throttled() -> Result<ExecuteToolResponse> {
     Err(Error::RateLimited)
 }
 fn down() -> Result<ExecuteToolResponse> {
-    Err(Error::ProviderUnavailable("provider returned HTTP 503".into()))
+    Err(Error::ProviderUnavailable(
+        "provider returned HTTP 503".into(),
+    ))
 }
 fn rejected() -> Result<ExecuteToolResponse> {
-    Err(Error::RejectedArguments("provider returned HTTP 400".into()))
+    Err(Error::RejectedArguments(
+        "provider returned HTTP 400".into(),
+    ))
 }
 
 struct Fixture {
@@ -136,7 +140,10 @@ fn roles_mode_lists_the_three_role_tools() {
     let fixture = fixture(&[], |_| {});
     let listed = fixture.service.list_tools().tools;
     assert_eq!(
-        listed.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>(),
+        listed
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>(),
         [tools::WEB_SEARCH, tools::WEB_ANSWER, tools::WEB_CONTENTS]
     );
 }
@@ -146,7 +153,10 @@ async fn search_uses_the_first_provider_and_translates_arguments() -> Result<()>
     let fixture = fixture(&[], |_| {});
     let response = fixture
         .service
-        .execute_tool(call(tools::WEB_SEARCH, json!({"query":"rust","max_results":3})))
+        .execute_tool(call(
+            tools::WEB_SEARCH,
+            json!({"query":"rust","max_results":3}),
+        ))
         .await?;
     assert_eq!(response.provider, "exa");
     assert_eq!(response.role, Some(Role::Search));
@@ -161,10 +171,16 @@ async fn search_uses_the_first_provider_and_translates_arguments() -> Result<()>
 
 #[tokio::test]
 async fn search_falls_back_in_order_past_provider_side_failures() -> Result<()> {
-    let fixture = fixture(&[("exa", broke), ("brave", throttled), ("tavily", down)], |_| {});
+    let fixture = fixture(
+        &[("exa", broke), ("brave", throttled), ("tavily", down)],
+        |_| {},
+    );
     let response = fixture
         .service
-        .execute_tool(call(tools::WEB_SEARCH, json!({"query":"rust","max_results":4})))
+        .execute_tool(call(
+            tools::WEB_SEARCH,
+            json!({"query":"rust","max_results":4}),
+        ))
         .await?;
     assert_eq!(response.provider, "tinyfish");
     assert_eq!(response.fallback_from, ["exa", "brave", "tavily"]);
@@ -176,7 +192,10 @@ async fn search_falls_back_in_order_past_provider_side_failures() -> Result<()> 
         fixture.calls("tavily")[0].arguments,
         json!({"query":"rust","max_results":4})
     );
-    assert_eq!(fixture.calls("tinyfish")[0].arguments, json!({"query":"rust"}));
+    assert_eq!(
+        fixture.calls("tinyfish")[0].arguments,
+        json!({"query":"rust"})
+    );
     Ok(())
 }
 
@@ -189,7 +208,9 @@ async fn invalid_arguments_do_not_fall_back() {
         .await;
     assert_eq!(
         result.err(),
-        Some(Error::RejectedArguments("provider returned HTTP 400".into()))
+        Some(Error::RejectedArguments(
+            "provider returned HTTP 400".into()
+        ))
     );
     assert!(fixture.calls("brave").is_empty());
 }
@@ -296,7 +317,10 @@ async fn deep_answers_prefer_deep_research_then_fall_back() -> Result<()> {
     let fixture = fixture(&[], |_| {});
     let response = fixture
         .service
-        .execute_tool(call(tools::WEB_ANSWER, json!({"query":"why","depth":"deep"})))
+        .execute_tool(call(
+            tools::WEB_ANSWER,
+            json!({"query":"why","depth":"deep"}),
+        ))
         .await?;
     assert_eq!(response.provider, "gemini_deep_research");
     assert_eq!(
@@ -307,7 +331,10 @@ async fn deep_answers_prefer_deep_research_then_fall_back() -> Result<()> {
     let fixture = fixture_without_deep_research();
     let response = fixture
         .service
-        .execute_tool(call(tools::WEB_ANSWER, json!({"query":"why","depth":"deep"})))
+        .execute_tool(call(
+            tools::WEB_ANSWER,
+            json!({"query":"why","depth":"deep"}),
+        ))
         .await?;
     assert_eq!(response.provider, "gemini");
     Ok(())

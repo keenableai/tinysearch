@@ -505,7 +505,11 @@ async fn http_failures_map_to_stable_codes() -> TestResult<()> {
             json!({"success":false,"error":"Insufficient budget","errorCode":"USER_INSUFFICIENT_CREDITS"}),
             Error::InsufficientBalance,
         ),
-        (429, json!({"error":{"message":"slow down"}}), Error::RateLimited),
+        (
+            429,
+            json!({"error":{"message":"slow down"}}),
+            Error::RateLimited,
+        ),
         (
             503,
             json!({}),

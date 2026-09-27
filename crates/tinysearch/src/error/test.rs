@@ -35,7 +35,10 @@ fn classified_errors_carry_their_code_on_the_bus() {
         ),
     ] {
         let message = error.bus_message();
-        assert!(message.starts_with(&format!("tinysearch.{code}: ")), "{message}");
+        assert!(
+            message.starts_with(&format!("tinysearch.{code}: ")),
+            "{message}"
+        );
         assert_eq!(errors::code_of(&message), Some(code));
     }
     assert_eq!(Error::Disabled.bus_message(), "search is disabled");

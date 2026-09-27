@@ -123,10 +123,7 @@ pub(super) fn provider_arguments(
             mapped
         }
     };
-    let declared = tool
-        .parameters
-        .get("properties")
-        .and_then(Value::as_object);
+    let declared = tool.parameters.get("properties").and_then(Value::as_object);
     if let Some(fields) = mapped.as_object_mut() {
         fields.retain(|key, value| {
             !value.is_null() && declared.is_some_and(|declared| declared.contains_key(key))

@@ -117,6 +117,9 @@ fn role_response_fields_are_optional_on_the_wire() -> serde_json::Result<()> {
     let encoded = serde_json::to_value(&routed)?;
     assert_eq!(encoded["role"], "search");
     assert_eq!(encoded["fallback_from"], serde_json::json!(["exa"]));
-    assert_eq!(serde_json::from_value::<ExecuteToolResponse>(encoded)?, routed);
+    assert_eq!(
+        serde_json::from_value::<ExecuteToolResponse>(encoded)?,
+        routed
+    );
     Ok(())
 }

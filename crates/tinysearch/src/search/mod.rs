@@ -137,7 +137,8 @@ impl SearchService {
         if let Some(values) = provider_request.arguments.as_object_mut() {
             values.remove("provider");
         }
-        self.dispatch(&selected, &first_tool, provider_request).await
+        self.dispatch(&selected, &first_tool, provider_request)
+            .await
     }
 
     /// Validates `request` against a provider tool and runs it on `provider`.

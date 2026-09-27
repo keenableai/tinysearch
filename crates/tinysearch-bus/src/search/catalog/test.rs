@@ -17,7 +17,11 @@ fn backend_routed() -> ProviderConfig {
 }
 
 fn names(response: &ListToolsResponse) -> Vec<&str> {
-    response.tools.iter().map(|tool| tool.name.as_str()).collect()
+    response
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect()
 }
 
 #[test]
@@ -172,7 +176,10 @@ fn backend_route_narrows_exa_search_and_gemini_models() {
     let available = configured_provider_tools(&config, &provider_tool_specs());
     let exa_search = &available["exa"][0];
     assert_eq!(exa_search.name, "exa_search");
-    assert_eq!(exa_search.parameters["properties"], json!({"query":{"type":"string","minLength":1}}));
+    assert_eq!(
+        exa_search.parameters["properties"],
+        json!({"query":{"type":"string","minLength":1}})
+    );
     assert_eq!(
         available["gemini"][0].parameters["properties"]["model"]["enum"][0],
         "gemini-3.8-flash"
@@ -223,7 +230,11 @@ fn roles_mode_without_backend_credential_drops_backend_providers() {
         listed.tools[0].parameters["properties"]["provider"]["enum"],
         json!(["brave"])
     );
-    assert!(select_tools(&BTreeMap::new(), &config.presentation).tools.is_empty());
+    assert!(
+        select_tools(&BTreeMap::new(), &config.presentation)
+            .tools
+            .is_empty()
+    );
 }
 
 #[test]
@@ -255,8 +266,8 @@ fn configured_role_order_wins_and_skips_unusable_or_unfit_providers() {
 fn role_tool_schemas_are_generic() -> Result<(), String> {
     let config = role_config();
     let available = configured_provider_tools(&config, &provider_tool_specs());
-    let search = role_tool_specs(&available, &config.presentation, Role::Search)
-        .ok_or("missing search")?;
+    let search =
+        role_tool_specs(&available, &config.presentation, Role::Search).ok_or("missing search")?;
     assert_eq!(search.name, "web_search_tool");
     assert_eq!(search.parameters["required"], json!(["query"]));
     assert_eq!(search.parameters["additionalProperties"], false);
@@ -270,8 +281,8 @@ fn role_tool_schemas_are_generic() -> Result<(), String> {
     );
     assert!(search.description.contains("exa, brave, tinyfish"));
 
-    let answer = role_tool_specs(&available, &config.presentation, Role::Answer)
-        .ok_or("missing answer")?;
+    let answer =
+        role_tool_specs(&available, &config.presentation, Role::Answer).ok_or("missing answer")?;
     assert_eq!(answer.name, "web_answer_tool");
     assert_eq!(answer.parameters["required"], json!(["query"]));
     assert_eq!(
@@ -295,8 +306,8 @@ fn deep_research_alone_serves_only_deep_answers() -> Result<(), String> {
         .providers
         .insert("gemini_deep_research".into(), keyed("google-key"));
     let available = configured_provider_tools(&config, &provider_tool_specs());
-    let answer = role_tool_specs(&available, &config.presentation, Role::Answer)
-        .ok_or("missing answer")?;
+    let answer =
+        role_tool_specs(&available, &config.presentation, Role::Answer).ok_or("missing answer")?;
     assert_eq!(
         answer.parameters["properties"]["depth"],
         json!({"type":"string","enum":["deep"],"default":"deep"})

@@ -65,7 +65,10 @@ fn builtins_discover_and_reinitialize_from_private_configuration() {
     let service = SearchService::with_providers(config.clone(), crate::provider::builtins());
     let tools = service.list_tools().tools;
     assert_eq!(
-        tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>(),
+        tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>(),
         [names::tools::WEB_SEARCH, names::tools::WEB_CONTENTS]
     );
     config.presentation.mode = crate::PresentationMode::AllTools;

@@ -28,16 +28,16 @@ pub(crate) fn builtins() -> BTreeMap<String, Arc<dyn SearchProvider>> {
     tinysearch_bus::PROVIDERS
         .iter()
         .copied()
-    .map(|name| {
-        (
-            name.into(),
-            Arc::new(BuiltinProvider {
-                name,
-                client: client.clone(),
-            }) as Arc<dyn SearchProvider>,
-        )
-    })
-    .collect()
+        .map(|name| {
+            (
+                name.into(),
+                Arc::new(BuiltinProvider {
+                    name,
+                    client: client.clone(),
+                }) as Arc<dyn SearchProvider>,
+            )
+        })
+        .collect()
 }
 
 impl SearchProvider for BuiltinProvider {

@@ -32,7 +32,9 @@ pub const fn role_tool_name(role: Role) -> &'static str {
 /// Returns the role a tool name presents, if it is a role tool.
 #[must_use]
 pub fn role_for_tool(name: &str) -> Option<Role> {
-    Role::ALL.into_iter().find(|role| role_tool_name(*role) == name)
+    Role::ALL
+        .into_iter()
+        .find(|role| role_tool_name(*role) == name)
 }
 /// Members in interface dispatch order.
 pub const METHODS: &[&str] = &[methods::LIST_TOOLS, methods::EXECUTE_TOOL];

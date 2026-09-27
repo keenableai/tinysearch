@@ -106,8 +106,12 @@ fn classify_body(value: &Value) -> Option<Error> {
         .or_else(|| field("/error/message"))
         .or_else(|| field("/message"))?
         .to_ascii_lowercase();
-    ["insufficient balance", "insufficient budget", "insufficient credits"]
-        .iter()
-        .any(|phrase| message.contains(phrase))
-        .then_some(Error::InsufficientBalance)
+    [
+        "insufficient balance",
+        "insufficient budget",
+        "insufficient credits",
+    ]
+    .iter()
+    .any(|phrase| message.contains(phrase))
+    .then_some(Error::InsufficientBalance)
 }

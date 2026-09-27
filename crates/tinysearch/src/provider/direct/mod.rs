@@ -60,10 +60,7 @@ async fn send(client: &Client, config: &ProviderConfig, prepared: Prepared) -> R
     if !params.is_empty() {
         builder = builder.query(&params);
     }
-    let response = builder
-        .send()
-        .await
-        .map_err(super::http::transport_error)?;
+    let response = builder.send().await.map_err(super::http::transport_error)?;
     super::http::read_json(response).await
 }
 

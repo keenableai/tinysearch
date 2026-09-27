@@ -21,7 +21,12 @@ pub const UNAVAILABLE: &str = "provider_unavailable";
 pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
 
 /// Every code, for exhaustive host-side matching.
-pub const ALL: &[&str] = &[INSUFFICIENT_BALANCE, RATE_LIMITED, UNAVAILABLE, INVALID_ARGUMENTS];
+pub const ALL: &[&str] = &[
+    INSUFFICIENT_BALANCE,
+    RATE_LIMITED,
+    UNAVAILABLE,
+    INVALID_ARGUMENTS,
+];
 
 /// Returns whether a role tool tries the next provider after `code`.
 #[must_use]
@@ -54,9 +59,10 @@ pub fn with_code(code: &str, message: &str) -> String {
 pub fn code_of(message: &str) -> Option<&'static str> {
     message.match_indices(PREFIX).find_map(|(index, _)| {
         let rest = &message[index + PREFIX.len()..];
-        ALL.iter()
-            .copied()
-            .find(|code| rest.strip_prefix(code).is_some_and(|tail| tail.starts_with(": ")))
+        ALL.iter().copied().find(|code| {
+            rest.strip_prefix(code)
+                .is_some_and(|tail| tail.starts_with(": "))
+        })
     })
 }
 

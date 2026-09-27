@@ -67,7 +67,10 @@ pub fn role_providers(
     presentation: &PresentationConfig,
     role: Role,
 ) -> Vec<String> {
-    let configured = presentation.roles.get(&role).filter(|list| !list.is_empty());
+    let configured = presentation
+        .roles
+        .get(&role)
+        .filter(|list| !list.is_empty());
     let order: Vec<&str> = configured.map_or_else(
         || default_role_providers(role).to_vec(),
         |list| list.iter().map(String::as_str).collect(),
@@ -161,5 +164,10 @@ pub fn role_tool_specs(
             &["urls"],
         ),
     };
-    Some(tool(role_tool_name(role), &description, properties, required))
+    Some(tool(
+        role_tool_name(role),
+        &description,
+        properties,
+        required,
+    ))
 }
