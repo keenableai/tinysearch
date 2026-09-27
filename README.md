@@ -9,9 +9,45 @@ The bus serves `ai.tinyhumans.tinysearch.Search` at
 `/ai/tinyhumans/tinysearch/Search`. `ListTools` returns currently available
 model-facing declarations; `ExecuteTool` invokes a declared tool and returns
 normalized results, citations, an optional answer, status, and optional provider
-data. The default presentation exposes all available provider tools. Router
-mode exposes one `search` tool and selects managed Parallel when available,
-then the first enabled provider in stable name order.
+data. The contract version is 2.0.
+
+## Presentation
+
+The default presentation, `roles`, exposes one generic tool per capability
+role that has at least one usable provider:
+
+| Role | Tool | Arguments | Providers (default order) |
+| --- | --- | --- | --- |
+| `search` | `web_search_tool` | `query`, `max_results?` (1-20), `provider?` | exa, brave, tavily, querit, seltz, searxng, tinyfish |
+| `answer` | `web_answer_tool` | `query`, `depth?` (`quick` or `deep`), `provider?` | gemini, gemini_deep_research, exa |
+| `contents` | `web_contents_tool` | `urls` (1-10), `query?`, `provider?` | exa, tavily, tinyfish |
+
+`presentation.roles` sets an ordered provider list per role; an absent or empty
+list uses the default order above. The first usable provider answers. When it
+fails with `insufficient_balance`, `rate_limited`, or `provider_unavailable`,
+the next one is tried; `invalid_arguments` and unclassified failures stop the
+call. The response carries `role` and `fallback_from`, the providers that
+failed before the one that answered. An explicit `provider` argument pins the
+call to that provider with no fallback; its schema enum lists the usable
+providers. `depth: "deep"` prefers Gemini Deep Research, which serves only deep
+answers, and falls back to the grounded answer providers; `quick` never uses it.
+
+`all_tools` exposes every available provider tool, `one_provider` exposes one
+provider's tools, and `router` exposes one `search` tool that runs the chosen
+provider's first tool, defaulting to the search role's first usable provider.
+
+## Errors
+
+Failed `ExecuteTool` calls return a TinyBus method error. When the module can
+classify the failure, the message starts with `tinysearch.<code>: `, and
+`tinysearch_bus::errors::code_of` extracts the code:
+
+| Code | Cause |
+| --- | --- |
+| `insufficient_balance` | HTTP 402 (or Tavily 432), or a backend insufficient-credits rejection |
+| `rate_limited` | HTTP 429 |
+| `provider_unavailable` | HTTP 408 or 5xx, transport failure, timeout, or an unreadable response |
+| `invalid_arguments` | Arguments rejected by the schema or by the provider (HTTP 400/422) |
 
 A direct provider requires its own credential unless it is explicitly keyless.
 A backend route requires a backend credential. Search can be disabled globally.
@@ -32,38 +68,36 @@ HTTP dependencies. `vendor/tinybus` is a pinned git submodule.
 
 ## Built-in providers
 
-Managed backend credentials enable Parallel's six operations by default. Add an
-explicit `tinyfish` or `gemini` provider entry with `route: "backend"` to
-expose those tools. `backend.auth_mode` is `session` (Authorization bearer) or
-`api_key` (`x-api-key`); only backend requests receive `x-sdk-name`.
+A provider appears only when the host configures it explicitly and enables it.
+Exa, Gemini and TinyFish (`BACKEND_PROVIDERS`) can use `route: "backend"`,
+which requires a backend credential; a backend credential alone enables
+nothing. `backend.auth_mode` is `session` (Authorization bearer) or `api_key`
+(`x-api-key`); only backend requests receive `x-sdk-name`. Backend responses
+are unwrapped from the `{success, data}` envelope.
 
-Direct Gemini uses a provider credential and `route: "direct"`. Its
-`gemini_agentic_search` operation calls the Gemini `generateContent` API with
-Google Search grounding. `gemini_deep_research` calls the asynchronous
-Interactions API; it can be resumed with `interaction_id` when the bounded poll
-returns `in_progress`. Direct Google calls receive `x-goog-api-key` and never
-receive backend attribution or credentials. TinyFish uses the managed backend
-route only.
+Exa offers `exa_search`, `exa_find_similar`, `exa_get_contents`, and
+`exa_answer`. Directly, they call Exa's `/search`, `/findSimilar`, `/contents`,
+and `/answer` with `x-api-key`. On the backend route they call
+`/agent-integrations/exa/{search,findSimilar,contents,answer}`. The backend's
+search takes only `{objective, searchQueries}`, so the backend `exa_search`
+schema accepts only `query`, sent as both; the other routes forward Exa's own
+request bodies.
 
-Parallel can also use `route: "direct"` with its own provider credential and
-optional `base_url`. Direct requests send `x-api-key` to Parallel's official
-`/v1/search`, `/v1/extract`, `/v1beta/chat/completions`, `/v1/tasks/runs`, and
-`/v1beta/findall/runs` endpoints. Research and enrichment create Task runs;
-dataset creates a FindAll run. They return `in_progress` with `run_id` or
-`findall_id` in `provider_data`. Call `parallel_research_status`,
-`parallel_enrich_status`, or `parallel_dataset_status` with that ID to check
-status and fetch completed results. Each call has a bounded timeout and does
-not wait indefinitely. The direct catalog exposes Parallel's current search
-mode values (`turbo`, `fast`, `basic`, `advanced`). Direct extract does not
-advertise the backend-only `excerpts` switch, and direct async runs do not
-advertise the backend-only `timeout_seconds` wait option. Backend tool schemas
-and routes remain unchanged.
+Gemini's `gemini_agentic_search` calls `generateContent` with Google Search
+grounding: directly with `x-goog-api-key`, or through
+`/agent-integrations/gemini/models/{model}/generate-content`, whose schema
+limits `model` to the backend's allowlist (default `gemini-3.8-flash`). The
+answer joins the candidate's text parts, and citations list the grounding
+chunks that `groundingSupports` reference first, then the rest.
+`gemini_deep_research` calls the direct asynchronous Interactions API; it can
+be resumed with `interaction_id` when the bounded poll returns `in_progress`.
+Direct Google calls never receive backend attribution or credentials. TinyFish
+uses the managed backend route only.
 
-Exa (`exa_search`, `exa_find_similar`, `exa_get_contents`), Brave web, news,
-image, and video search, Querit search, and Tavily search and extract use
-`route: "direct"` with a provider credential. Their `base_url` can target a
-controlled endpoint for testing. These providers do not have managed backend
-routes; unsupported routes and tool arguments are rejected.
+Brave web, news, image, and video search, Querit search, and Tavily search and
+extract use `route: "direct"` with a provider credential. Their `base_url` can
+target a controlled endpoint for testing. These providers do not have managed
+backend routes; unsupported routes and tool arguments are rejected.
 
 Seltz (`seltz_search`) also requires a direct credential. It posts to
 `https://api.seltz.ai/v1/search` with `x-api-key`, supports domain and date

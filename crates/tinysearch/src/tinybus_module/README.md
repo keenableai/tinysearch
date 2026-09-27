@@ -5,6 +5,8 @@ from `tinysearch-bus`. `tinybus_module::module_export!` accepts `SearchConfig`
 at initialization and supports live reinitialization. The service owns provider
 routing and does not log credentials, arguments, or results.
 
-The built-in registry serves Parallel, TinyFish, Gemini grounded search, and
-Gemini Deep Research. `ListTools` filters them by enabled state, route, and
-credential availability on every initialization or reinitialization.
+The built-in registry serves every provider in `tinysearch_bus::PROVIDERS`.
+`ListTools` filters them by enabled state, route, and credential availability
+on every initialization or reinitialization. Failed calls carry
+`Error::bus_message`, which prefixes classified failures with
+`tinysearch.<code>: `.
