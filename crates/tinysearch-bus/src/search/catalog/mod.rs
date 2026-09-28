@@ -27,8 +27,8 @@ pub const PROVIDERS: &[&str] = &[
 
 /// Providers that support [`ProviderRoute::Backend`] through the managed
 /// backend. Only these become usable from a backend credential; every other
-/// provider, including Parallel and TinyFish, is direct-only (bring your own
-/// key). The TinyHumans backend does not proxy TinyFish.
+/// provider, including `parallel` and `tinyfish`, is direct-only (bring your
+/// own key). The managed backend does not proxy `tinyfish`.
 pub const BACKEND_PROVIDERS: &[&str] = &["exa", "gemini"];
 
 /// Providers usable directly with their own private credential.
