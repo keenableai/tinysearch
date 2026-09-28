@@ -151,7 +151,7 @@ async fn backend_reports_rejected_failed_and_running_tasks() -> TestResult<()> {
     ] {
         let (url, server) = mock(200, payload).await?;
         let provider = BuiltinProvider {
-            name: "tinyfish",
+            name: "exa",
             client: Client::new(),
         };
         let result = provider
@@ -161,7 +161,7 @@ async fn backend_reports_rejected_failed_and_running_tasks() -> TestResult<()> {
                     ..ProviderConfig::default()
                 },
                 &backend(url, BackendAuthMode::Session),
-                &request("tinyfish_search", json!({"query":"test"})),
+                &request("exa_search", json!({"query":"test"})),
             )
             .await;
         server.await??;
@@ -233,6 +233,8 @@ async fn provider_rejects_unknown_provider_tool_and_invalid_arguments() -> TestR
 #[tokio::test]
 async fn provider_rejects_incompatible_routes_and_missing_backend_url() -> TestResult<()> {
     let backend = BackendConfig::default();
+    // TinyFish is direct-only (the backend does not proxy it): without the
+    // user's own key there is nothing to call.
     let provider = BuiltinProvider {
         name: "tinyfish",
         client: Client::new(),
@@ -240,14 +242,33 @@ async fn provider_rejects_incompatible_routes_and_missing_backend_url() -> TestR
     assert_eq!(
         provider
             .run(
-                &ProviderConfig::default(),
+                &ProviderConfig {
+                    route: ProviderRoute::Direct,
+                    ..ProviderConfig::default()
+                },
                 &backend,
                 &request("tinyfish_search", json!({"query":"test"}))
             )
             .await
             .err()
             .ok_or("expected provider error")?,
-        Error::Provider("this provider requires the backend route".into())
+        Error::Provider("provider credential unavailable".into())
+    );
+    assert_eq!(
+        provider
+            .run(
+                &ProviderConfig {
+                    route: ProviderRoute::Backend,
+                    credential: Some("key".into()),
+                    ..ProviderConfig::default()
+                },
+                &backend,
+                &request("tinyfish_search", json!({"query":"test"}))
+            )
+            .await
+            .err()
+            .ok_or("expected provider error")?,
+        Error::Provider("this provider requires a direct route".into())
     );
     let backend_route = ProviderConfig {
         route: ProviderRoute::Backend,
@@ -270,7 +291,7 @@ async fn provider_rejects_incompatible_routes_and_missing_backend_url() -> TestR
         Error::Provider("Deep Research requires a direct Gemini route".into())
     );
     let provider = BuiltinProvider {
-        name: "tinyfish",
+        name: "exa",
         client: Client::new(),
     };
     assert_eq!(
@@ -278,7 +299,7 @@ async fn provider_rejects_incompatible_routes_and_missing_backend_url() -> TestR
             .run(
                 &backend_route,
                 &backend,
-                &request("tinyfish_search", json!({"query":"test"}))
+                &request("exa_search", json!({"query":"test"}))
             )
             .await
             .err()
@@ -333,7 +354,7 @@ async fn direct_deep_research_requires_credential_and_valid_interaction_id() -> 
 #[tokio::test]
 async fn backend_requires_credential() -> TestResult<()> {
     let provider = BuiltinProvider {
-        name: "tinyfish",
+        name: "exa",
         client: Client::new(),
     };
     let mut backend = backend("http://127.0.0.1:1".into(), BackendAuthMode::Session);
@@ -346,7 +367,7 @@ async fn backend_requires_credential() -> TestResult<()> {
                     ..ProviderConfig::default()
                 },
                 &backend,
-                &request("tinyfish_search", json!({"query":"test"}))
+                &request("exa_search", json!({"query":"test"}))
             )
             .await
             .err()
@@ -740,7 +761,7 @@ async fn direct_gemini_keeps_backend_headers_off_request() -> TestResult<()> {
 async fn upstream_error_does_not_echo_sensitive_body() -> TestResult<()> {
     let (url, server) = mock(400, json!({"message":"secret query"})).await?;
     let provider = BuiltinProvider {
-        name: "tinyfish",
+        name: "exa",
         client: Client::new(),
     };
     let error = provider
@@ -750,7 +771,7 @@ async fn upstream_error_does_not_echo_sensitive_body() -> TestResult<()> {
                 ..ProviderConfig::default()
             },
             &backend(url, BackendAuthMode::Session),
-            &request("tinyfish_search", json!({"query":"secret query"})),
+            &request("exa_search", json!({"query":"secret query"})),
         )
         .await
         .err()
@@ -763,33 +784,67 @@ async fn upstream_error_does_not_echo_sensitive_body() -> TestResult<()> {
     Ok(())
 }
 
-#[test]
-fn provider_request_mappings_preserve_legacy_knobs() -> TestResult<()> {
-    let tinyfish_cases = [
-        (
-            "tinyfish_search",
-            json!({"query":"test","page":3,"include_thumbnail":true}),
-            "/agent-integrations/tinyfish/search",
-            "page",
-        ),
-        (
-            "tinyfish_fetch",
-            json!({"urls":["https://a"],"format":"html","links":true}),
-            "/agent-integrations/tinyfish/fetch",
-            "links",
-        ),
-        (
-            "tinyfish_agent_run",
-            json!({"url":"https://a","goal":"find","proxy_country_code":"US","use_vault":true,"credential_item_ids":["id"]}),
-            "/agent-integrations/tinyfish/agent/run",
-            "proxy_config",
-        ),
-    ];
-    for (name, arguments, path, field) in tinyfish_cases {
-        let (actual_path, body) = tinyfish_request(&request(name, arguments))?;
-        assert_eq!(actual_path, path);
-        assert!(body.get(field).is_some(), "{name} missing {field}");
-    }
+#[tokio::test]
+async fn tinyfish_search_goes_direct_with_the_users_key() -> TestResult<()> {
+    let (url, server) = mock(
+        200,
+        json!({"query":"rust","results":[{"position":1,"site_name":"Rust","title":"Rust","snippet":"A language","url":"https://www.rust-lang.org/"}],"total_results":1,"page":0}),
+    )
+    .await?;
+    let provider = BuiltinProvider {
+        name: "tinyfish",
+        client: Client::new(),
+    };
+    let response = provider
+        .run(
+            &ProviderConfig {
+                route: ProviderRoute::Direct,
+                credential: Some("tf-key".into()),
+                base_url: Some(url),
+                ..ProviderConfig::default()
+            },
+            &BackendConfig::default(),
+            &request("tinyfish_search", json!({"query":"rust","page":2})),
+        )
+        .await?;
+    let sent = server.await??;
+    let lower = sent.to_ascii_lowercase();
+    assert!(sent.starts_with("GET /?"), "{sent}");
+    assert!(sent.contains("query=rust") && sent.contains("page=2"), "{sent}");
+    assert!(lower.contains("x-api-key: tf-key"), "{sent}");
+    assert!(!lower.contains("x-sdk-name:"), "no backend attribution: {sent}");
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(response.results[0].url, "https://www.rust-lang.org/");
+    Ok(())
+}
+
+#[tokio::test]
+async fn tinyfish_failed_agent_run_is_an_error() -> TestResult<()> {
+    let (url, server) = mock(200, json!({"run_id":"r1","status":"FAILED","result":null})).await?;
+    let provider = BuiltinProvider {
+        name: "tinyfish",
+        client: Client::new(),
+    };
+    let error = provider
+        .run(
+            &ProviderConfig {
+                route: ProviderRoute::Direct,
+                credential: Some("tf-key".into()),
+                base_url: Some(url),
+                ..ProviderConfig::default()
+            },
+            &BackendConfig::default(),
+            &request(
+                "tinyfish_agent_run",
+                json!({"url":"https://a.example","goal":"find the price"}),
+            ),
+        )
+        .await
+        .err()
+        .ok_or("expected provider error")?;
+    let sent = server.await??;
+    assert!(sent.starts_with("POST /v1/automation/run "), "{sent}");
+    assert_eq!(error, Error::Provider("provider task failed".into()));
     Ok(())
 }
 
