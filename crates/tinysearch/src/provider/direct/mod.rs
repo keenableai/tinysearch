@@ -16,6 +16,7 @@ mod querit;
 mod searxng;
 mod seltz;
 mod tavily;
+mod tinyfish;
 
 pub(super) async fn run(
     client: &Client,
@@ -41,12 +42,31 @@ pub(super) async fn run(
         .ok_or_else(|| Error::Provider("provider credential unavailable".into()))?;
     let (method, default_base, path, body, params, header, timeout) =
         prepare(provider, config, request, key)?;
+    // A synchronous TinyFish browser run takes minutes; the host's search
+    // timeout (seconds) would cut every run short, so it keeps its own.
+    let long_run = request.name == "tinyfish_agent_run";
+    let send_config = if long_run {
+        &ProviderConfig {
+            timeout_secs: None,
+            ..config.clone()
+        }
+    } else {
+        config
+    };
     let value = send(
         client,
-        config,
+        send_config,
         (method, default_base, path, body, params, header, timeout),
     )
     .await?;
+    if provider == "tinyfish"
+        && matches!(
+            super::status_state(&value),
+            Some("failed" | "cancelled" | "error")
+        )
+    {
+        return Err(Error::Provider("provider task failed".into()));
+    }
     normalize_response(provider, config, request, value)
 }
 
@@ -147,6 +167,7 @@ pub(super) fn prepare(
         "querit" => querit::prepare(&request, key),
         "tavily" => tavily::prepare(&request, key),
         "seltz" => seltz::prepare(&request, key),
+        "tinyfish" => tinyfish::prepare(&request, key),
         _ => Err(Error::UnavailableProvider(provider.into())),
     }
 }
