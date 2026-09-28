@@ -1,6 +1,6 @@
-//! TinyFish, reached directly with the user's own key.
+//! The `tinyfish` provider, reached directly with the user's own key.
 //!
-//! TinyFish splits its API across three hosts, all authenticated with an
+//! The provider splits its API across three hosts, all authenticated with an
 //! `X-API-Key` header (<https://docs.tinyfish.ai>):
 //! - Search: `GET https://api.search.tinyfish.ai?query=…` →
 //!   `{query, results: [{position, site_name, title, snippet, url}], …}`
@@ -9,7 +9,7 @@
 //! - Agent: `POST https://agent.tinyfish.ai/v1/automation/run`
 //!   `{url, goal, …}` → `{run_id, status, result, …}`
 //!
-//! The responses are already in the shapes `normalize` reads for TinyFish, so
+//! The responses are already in the shapes `normalize` reads for `tinyfish`, so
 //! no unwrapping is needed. A `base_url` override replaces the host for every
 //! tool (a test server or a proxy).
 use super::{Prepared, urls};
@@ -23,7 +23,7 @@ pub(super) const SEARCH_BASE: &str = "https://api.search.tinyfish.ai";
 pub(super) const FETCH_BASE: &str = "https://api.fetch.tinyfish.ai";
 pub(super) const AGENT_BASE: &str = "https://agent.tinyfish.ai";
 
-/// Most URLs one fetch call accepts (TinyFish's own limit).
+/// Most URLs one fetch call accepts (the provider's own limit).
 const MAX_FETCH_URLS: usize = 10;
 
 pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepared> {
