@@ -104,3 +104,6 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
         _ => Err(Error::UnavailableTool(request.name.clone())),
     }
 }
+
+#[cfg(test)]
+mod test;
