@@ -38,7 +38,7 @@ fn service(mode: PresentationMode) -> SearchService {
     config.providers.insert(
         "tinyfish".into(),
         ProviderConfig {
-            route: ProviderRoute::Backend,
+            credential: Some("tf-key".into()),
             ..ProviderConfig::default()
         },
     );
@@ -377,11 +377,10 @@ fn direct_provider_without_credential_is_hidden() {
     config.providers.insert(
         "tinyfish".into(),
         ProviderConfig {
-            route: ProviderRoute::Backend,
+            credential: Some("secret".into()),
             ..ProviderConfig::default()
         },
     );
-    config.backend.credential = Some("secret".into());
     config.presentation.mode = PresentationMode::AllTools;
     assert_eq!(
         SearchService::with_providers(config, providers)
