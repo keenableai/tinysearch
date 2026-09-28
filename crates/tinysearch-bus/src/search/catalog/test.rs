@@ -297,10 +297,15 @@ fn roles_mode_without_backend_credential_drops_backend_providers() {
     config.backend.credential = None;
     let available = configured_provider_tools(&config, &provider_tool_specs());
     let listed = select_tools(&available, &config.presentation);
-    assert_eq!(names(&listed), [tools::WEB_SEARCH]);
+    // Own-key providers survive: TinyFish runs on its key, not the backend.
+    assert_eq!(names(&listed), [tools::WEB_SEARCH, tools::WEB_CONTENTS]);
     assert_eq!(
         listed.tools[0].parameters["properties"]["provider"]["enum"],
-        json!(["brave"])
+        json!(["brave", "tinyfish"])
+    );
+    assert_eq!(
+        listed.tools[1].parameters["properties"]["provider"]["enum"],
+        json!(["tinyfish"])
     );
     assert!(
         select_tools(&BTreeMap::new(), &config.presentation)
