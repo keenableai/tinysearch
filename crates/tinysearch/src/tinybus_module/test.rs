@@ -55,10 +55,11 @@ fn builtins_discover_and_reinitialize_from_private_configuration() {
     let mut config = SearchConfig::default();
     config.backend.base_url = Some("http://127.0.0.1:1".into());
     config.backend.credential = Some("private".into());
+    // TinyFish is direct-only: the user's own key.
     config.providers.insert(
         "tinyfish".into(),
         crate::ProviderConfig {
-            route: crate::ProviderRoute::Backend,
+            credential: Some("tf-key".into()),
             ..crate::ProviderConfig::default()
         },
     );
@@ -103,10 +104,12 @@ async fn classified_failures_cross_the_bus_with_their_code() -> tinybus::Result<
     });
     config.backend.base_url = Some(format!("http://127.0.0.1:{port}"));
     config.backend.credential = Some("private".into());
+    // TinyFish is direct-only; point its own endpoint at the dropping server.
     config.providers.insert(
         "tinyfish".into(),
         crate::ProviderConfig {
-            route: crate::ProviderRoute::Backend,
+            credential: Some("tf-key".into()),
+            base_url: Some(format!("http://127.0.0.1:{port}")),
             ..crate::ProviderConfig::default()
         },
     );

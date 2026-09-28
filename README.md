@@ -71,7 +71,7 @@ HTTP dependencies. `vendor/tinybus` is a pinned git submodule.
 ## Built-in providers
 
 A provider appears only when the host configures it explicitly and enables it.
-Exa, Gemini and TinyFish (`BACKEND_PROVIDERS`) can use `route: "backend"`,
+Exa and Gemini (`BACKEND_PROVIDERS`) can use `route: "backend"`,
 which requires a backend credential; a backend credential alone enables
 nothing. `backend.auth_mode` is `session` (Authorization bearer) or `api_key`
 (`x-api-key`); only backend requests receive `x-sdk-name`. Backend responses
@@ -93,8 +93,17 @@ answer joins the candidate's text parts, and citations list the grounding
 chunks that `groundingSupports` reference first, then the rest.
 `gemini_deep_research` calls the direct asynchronous Interactions API; it can
 be resumed with `interaction_id` when the bounded poll returns `in_progress`.
-Direct Google calls never receive backend attribution or credentials. TinyFish
-uses the managed backend route only.
+Direct Google calls never receive backend attribution or credentials.
+
+TinyFish is bring-your-own-key only (the managed backend does not proxy it).
+Every TinyFish call carries the user's key as `X-API-Key`: `tinyfish_search`
+is `GET https://api.search.tinyfish.ai` (`query`, `location?`, `language?`,
+`page?`), `tinyfish_fetch` is `POST https://api.fetch.tinyfish.ai` (`urls`
+1-10, `format?`), and `tinyfish_agent_run` is
+`POST https://agent.tinyfish.ai/v1/automation/run` (`url`, `goal`, optional
+browser/proxy/vault fields), with its own 300 s timeout because a browser run
+takes minutes; a `FAILED` run is a provider error. A `base_url` override
+replaces the host for all three.
 
 Parallel is bring-your-own-key only: there is no managed Parallel, so it is not
 in `BACKEND_PROVIDERS`, and a `route: "backend"` entry leaves it unavailable

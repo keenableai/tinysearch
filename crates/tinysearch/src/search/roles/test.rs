@@ -82,7 +82,7 @@ fn fixture(
 ) -> Fixture {
     let mut config = SearchConfig::default();
     config.backend.credential = Some("session".into());
-    for name in ["exa", "gemini", "tinyfish"] {
+    for name in ["exa", "gemini"] {
         config.providers.insert(
             name.into(),
             ProviderConfig {
@@ -91,7 +91,7 @@ fn fixture(
             },
         );
     }
-    for name in ["brave", "tavily", "gemini_deep_research"] {
+    for name in ["brave", "tavily", "gemini_deep_research", "tinyfish"] {
         config.providers.insert(
             name.into(),
             ProviderConfig {

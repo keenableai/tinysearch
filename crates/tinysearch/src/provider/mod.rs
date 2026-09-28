@@ -67,10 +67,10 @@ impl BuiltinProvider {
     ) -> Result<ExecuteToolResponse> {
         let (path, body) = match self.name {
             "exa" if config.route == ProviderRoute::Backend => exa_request(request)?,
-            "exa" | "parallel" | "brave" | "querit" | "tavily" | "seltz" | "searxng" => {
+            "exa" | "parallel" | "brave" | "querit" | "tavily" | "seltz" | "searxng"
+            | "tinyfish" => {
                 return direct::run(&self.client, self.name, config, request).await;
             }
-            "tinyfish" => tinyfish_request(request)?,
             "gemini" => return self.gemini(config, backend, request).await,
             "gemini_deep_research" => return self.deep_research(config, request).await,
             _ => return Err(Error::UnavailableProvider(self.name.into())),
@@ -397,55 +397,6 @@ fn exa_request(request: &ExecuteToolRequest) -> Result<(String, Value)> {
         _ => return Err(Error::UnavailableTool(request.name.clone())),
     };
     Ok((format!("/agent-integrations/exa/{path}"), body))
-}
-fn tinyfish_request(request: &ExecuteToolRequest) -> Result<(String, Value)> {
-    let args = &request.arguments;
-    let (path, mut body) = match request.name.as_str() {
-        "tinyfish_search" => (
-            "search",
-            mapped(
-                args,
-                &[
-                    ("query", "query"),
-                    ("location", "location"),
-                    ("language", "language"),
-                    ("page", "page"),
-                    ("include_thumbnail", "include_thumbnail"),
-                ],
-            ),
-        ),
-        "tinyfish_fetch" => (
-            "fetch",
-            mapped(
-                args,
-                &[
-                    ("urls", "urls"),
-                    ("format", "format"),
-                    ("links", "links"),
-                    ("image_links", "image_links"),
-                ],
-            ),
-        ),
-        "tinyfish_agent_run" => (
-            "agent/run",
-            mapped(
-                args,
-                &[
-                    ("url", "url"),
-                    ("goal", "goal"),
-                    ("output_schema", "output_schema"),
-                    ("browser_profile", "browser_profile"),
-                    ("use_vault", "use_vault"),
-                    ("credential_item_ids", "credential_item_ids"),
-                ],
-            ),
-        ),
-        _ => return Err(Error::UnavailableTool(request.name.clone())),
-    };
-    if let Some(country) = args.get("proxy_country_code") {
-        body["proxy_config"] = json!({"enabled":true,"type":"tetra","country_code":country});
-    }
-    Ok((format!("/agent-integrations/tinyfish/{path}"), body))
 }
 
 mod direct;
