@@ -810,9 +810,15 @@ async fn tinyfish_search_goes_direct_with_the_users_key() -> TestResult<()> {
     let sent = server.await??;
     let lower = sent.to_ascii_lowercase();
     assert!(sent.starts_with("GET /?"), "{sent}");
-    assert!(sent.contains("query=rust") && sent.contains("page=2"), "{sent}");
+    assert!(
+        sent.contains("query=rust") && sent.contains("page=2"),
+        "{sent}"
+    );
     assert!(lower.contains("x-api-key: tf-key"), "{sent}");
-    assert!(!lower.contains("x-sdk-name:"), "no backend attribution: {sent}");
+    assert!(
+        !lower.contains("x-sdk-name:"),
+        "no backend attribution: {sent}"
+    );
     assert_eq!(response.results.len(), 1);
     assert_eq!(response.results[0].url, "https://www.rust-lang.org/");
     Ok(())

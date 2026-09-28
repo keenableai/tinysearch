@@ -52,7 +52,10 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
         }
         "tinyfish_fetch" => {
             let urls = urls(args)?;
-            if urls.as_array().is_some_and(|list| list.len() > MAX_FETCH_URLS) {
+            if urls
+                .as_array()
+                .is_some_and(|list| list.len() > MAX_FETCH_URLS)
+            {
                 return Err(Error::InvalidArguments);
             }
             let mut body = json!({ "urls": urls });

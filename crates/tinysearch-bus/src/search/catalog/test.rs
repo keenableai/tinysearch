@@ -176,7 +176,8 @@ fn provider_roles_and_defaults_match_the_contract() {
             "searxng"
         ]
     );
-    assert_eq!(BACKEND_PROVIDERS, ["exa", "gemini", "tinyfish"]);
+    // The TinyHumans backend does not proxy TinyFish: it is own-key only.
+    assert_eq!(BACKEND_PROVIDERS, ["exa", "gemini"]);
 }
 
 #[test]
@@ -192,7 +193,9 @@ fn searxng_categories_match_supported_execution_values() {
 fn direct_tools_require_a_nonempty_private_credential() {
     let specs = provider_tool_specs();
     let mut config = SearchConfig::default();
-    for name in ["exa", "parallel", "brave", "querit", "tavily", "seltz"] {
+    for name in [
+        "exa", "parallel", "brave", "querit", "tavily", "seltz", "tinyfish",
+    ] {
         config.providers.insert(name.into(), keyed("  "));
     }
     assert!(configured_provider_tools(&config, &specs).is_empty());
@@ -206,6 +209,7 @@ fn direct_tools_require_a_nonempty_private_credential() {
     assert_eq!(available["querit"].len(), 1);
     assert_eq!(available["tavily"].len(), 2);
     assert_eq!(available["seltz"].len(), 1);
+    assert_eq!(available["tinyfish"].len(), 3);
 }
 
 #[test]
@@ -224,7 +228,7 @@ fn backend_route_is_limited_to_backend_providers_with_a_credential() {
     let available = configured_provider_tools(&config, &specs);
     assert_eq!(
         available.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["exa", "gemini", "tinyfish"]
+        ["exa", "gemini"]
     );
 }
 
@@ -259,7 +263,7 @@ fn role_config() -> SearchConfig {
     config.backend.credential = Some("session".into());
     config.providers.insert("exa".into(), backend_routed());
     config.providers.insert("gemini".into(), backend_routed());
-    config.providers.insert("tinyfish".into(), backend_routed());
+    config.providers.insert("tinyfish".into(), keyed("tf-key"));
     config.providers.insert("brave".into(), keyed("brave-key"));
     config
 }
