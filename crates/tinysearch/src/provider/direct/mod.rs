@@ -59,11 +59,14 @@ pub(super) async fn run(
         (method, default_base, path, body, params, header, timeout),
     )
     .await?;
+    // The agent API reports `COMPLETED` / `FAILED`; compare case-insensitively.
     if provider == "tinyfish"
-        && matches!(
-            super::status_state(&value),
-            Some("failed" | "cancelled" | "error")
-        )
+        && super::status_state(&value).is_some_and(|state| {
+            matches!(
+                state.to_ascii_lowercase().as_str(),
+                "failed" | "cancelled" | "error"
+            )
+        })
     {
         return Err(Error::Provider("provider task failed".into()));
     }
