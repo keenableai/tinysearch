@@ -27,8 +27,9 @@ pub const PROVIDERS: &[&str] = &[
 
 /// Providers that support [`ProviderRoute::Backend`] through the managed
 /// backend. Only these become usable from a backend credential; every other
-/// provider, including Parallel, is direct-only (bring your own key).
-pub const BACKEND_PROVIDERS: &[&str] = &["exa", "gemini", "tinyfish"];
+/// provider, including Parallel and TinyFish, is direct-only (bring your own
+/// key). The TinyHumans backend does not proxy TinyFish.
+pub const BACKEND_PROVIDERS: &[&str] = &["exa", "gemini"];
 
 /// Providers usable directly with their own private credential.
 const KEYED_DIRECT_PROVIDERS: &[&str] = &[
@@ -40,6 +41,7 @@ const KEYED_DIRECT_PROVIDERS: &[&str] = &[
     "gemini_deep_research",
     "seltz",
     "parallel",
+    "tinyfish",
 ];
 
 /// Gemini models the managed backend accepts for grounded generation.
@@ -70,13 +72,13 @@ pub fn provider_tool_specs() -> BTreeMap<String, Vec<ToolSpec>> {
         tool(
             "tinyfish_search",
             "Search with TinyFish",
-            json!({"query":text,"location":{"type":"string"},"language":{"type":"string"},"page":{"type":"integer","minimum":0,"maximum":10},"include_thumbnail":{"type":"boolean"}}),
+            json!({"query":text,"location":{"type":"string"},"language":{"type":"string"},"page":{"type":"integer","minimum":0,"maximum":10}}),
             &["query"],
         ),
         tool(
             "tinyfish_fetch",
             "Render pages with TinyFish",
-            json!({"urls":urls(10),"format":{"type":"string","enum":["markdown","html","json"]},"links":{"type":"boolean"},"image_links":{"type":"boolean"}}),
+            json!({"urls":urls(10),"format":{"type":"string","enum":["markdown","html","json"]}}),
             &["urls"],
         ),
         tool(
