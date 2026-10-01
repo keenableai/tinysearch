@@ -164,7 +164,7 @@ async fn search_uses_the_first_provider_and_translates_arguments() -> Result<()>
         .await?;
     assert_eq!(response.provider, "exa");
     assert_eq!(response.role, Some(Role::Search));
-    assert!(response.fallback_from.is_empty());
+    assert_eq!(response.fallback_from.len(), 0);
     let sent = fixture.calls("exa");
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].name, "exa_search");
@@ -216,7 +216,7 @@ async fn invalid_arguments_do_not_fall_back() {
             "provider returned HTTP 400".into()
         ))
     );
-    assert!(fixture.calls("brave").is_empty());
+    assert_eq!(fixture.calls("brave").len(), 0);
 }
 
 #[tokio::test]
@@ -248,8 +248,8 @@ async fn explicit_provider_is_used_alone_without_fallback() -> Result<()> {
         ))
         .await;
     assert_eq!(result.err(), Some(Error::InsufficientBalance));
-    assert!(fixture.calls("exa").is_empty());
-    assert!(fixture.calls("tavily").is_empty());
+    assert_eq!(fixture.calls("exa").len(), 0);
+    assert_eq!(fixture.calls("tavily").len(), 0);
 
     let response = fixture
         .service
@@ -259,7 +259,7 @@ async fn explicit_provider_is_used_alone_without_fallback() -> Result<()> {
         ))
         .await?;
     assert_eq!(response.provider, "tavily");
-    assert!(fixture.calls("exa").is_empty());
+    assert_eq!(fixture.calls("exa").len(), 0);
     Ok(())
 }
 
@@ -296,7 +296,7 @@ async fn role_arguments_are_validated_before_dispatch() {
             .err(),
         Some(Error::UnavailableTool("exa_search".into()))
     );
-    assert!(fixture.calls("exa").is_empty());
+    assert_eq!(fixture.calls("exa").len(), 0);
 }
 
 #[tokio::test]
@@ -312,7 +312,7 @@ async fn quick_answers_skip_deep_research() -> Result<()> {
     assert_eq!(fixture.calls("gemini")[0].name, "gemini_agentic_search");
     assert_eq!(fixture.calls("exa")[0].name, "exa_answer");
     assert_eq!(fixture.calls("exa")[0].arguments, json!({"query":"why"}));
-    assert!(fixture.calls("gemini_deep_research").is_empty());
+    assert_eq!(fixture.calls("gemini_deep_research").len(), 0);
     Ok(())
 }
 
@@ -368,7 +368,7 @@ async fn explicit_quick_depth_is_rejected_when_only_deep_research_is_usable() {
         ))
         .await;
     assert_eq!(result.err(), Some(Error::InvalidArguments));
-    assert!(fixture.calls("gemini_deep_research").is_empty());
+    assert_eq!(fixture.calls("gemini_deep_research").len(), 0);
 }
 
 #[tokio::test]
@@ -564,7 +564,7 @@ async fn parallel_is_never_usable_on_the_backend_route() {
             parallel.route = ProviderRoute::Backend;
         }
     });
-    assert!(fixture.service.list_tools().tools.is_empty());
+    assert_eq!(fixture.service.list_tools().tools.len(), 0);
     for (tool, arguments) in [
         (tools::WEB_SEARCH, json!({"query":"rust"})),
         (tools::WEB_ANSWER, json!({"query":"why"})),
@@ -582,7 +582,7 @@ async fn parallel_is_never_usable_on_the_backend_route() {
             Some(Error::UnavailableTool(tool.into()))
         );
     }
-    assert!(fixture.calls("parallel").is_empty());
+    assert_eq!(fixture.calls("parallel").len(), 0);
 }
 
 #[tokio::test]
@@ -602,7 +602,7 @@ async fn role_calls_fall_back_into_parallel() -> Result<()> {
         .await?;
     assert_eq!(response.provider, "parallel");
     assert_eq!(response.fallback_from, ["exa", "brave", "tavily"]);
-    assert!(fixture.calls("tinyfish").is_empty());
+    assert_eq!(fixture.calls("tinyfish").len(), 0);
 
     let response = fixture
         .service
@@ -650,7 +650,7 @@ async fn deep_answers_skip_parallel() -> Result<()> {
         .await;
     assert!(matches!(result, Err(Error::ProviderUnavailable(_))));
     assert_eq!(fixture.calls("gemini_deep_research").len(), 1);
-    assert!(fixture.calls("parallel").is_empty());
+    assert_eq!(fixture.calls("parallel").len(), 0);
 
     assert_eq!(
         fixture
@@ -663,7 +663,7 @@ async fn deep_answers_skip_parallel() -> Result<()> {
             .err(),
         Some(Error::InvalidArguments)
     );
-    assert!(fixture.calls("parallel").is_empty());
+    assert_eq!(fixture.calls("parallel").len(), 0);
 
     let response = fixture
         .service

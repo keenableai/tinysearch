@@ -139,7 +139,7 @@ fn provider_roles_and_defaults_match_the_contract() {
         role_provider_tool(Role::Contents, "parallel"),
         Some("parallel_extract")
     );
-    assert!(provider_roles("unknown").is_empty());
+    assert_eq!(provider_roles("unknown").len(), 0);
     assert_eq!(provider_roles("gemini"), [Role::Answer]);
     assert_eq!(provider_roles("gemini_deep_research"), [Role::Answer]);
     assert_eq!(provider_roles("tinyfish"), [Role::Search, Role::Contents]);
@@ -307,11 +307,7 @@ fn roles_mode_without_backend_credential_drops_backend_providers() {
         listed.tools[1].parameters["properties"]["provider"]["enum"],
         json!(["tinyfish"])
     );
-    assert!(
-        select_tools(&BTreeMap::new(), &config.presentation)
-            .tools
-            .is_empty()
-    );
+    assert_eq!( select_tools(&BTreeMap::new(), &config.presentation) .tools .len(), 0);
 }
 
 #[test]

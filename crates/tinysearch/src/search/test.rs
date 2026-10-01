@@ -186,7 +186,7 @@ async fn router_never_dispatches_search_to_a_non_search_provider() {
     )]
     .into();
     let service = SearchService::with_providers(config, providers);
-    assert!(service.list_tools().tools.is_empty());
+    assert_eq!(service.list_tools().tools.len(), 0);
     let result = service
         .execute_tool(ExecuteToolRequest {
             name: "search".into(),
@@ -223,7 +223,7 @@ async fn rejects_unadvertised_tool_and_invalid_arguments() {
 fn disabling_search_suppresses_tools() {
     let mut service = service(PresentationMode::AllTools);
     service.config.enabled = false;
-    assert!(service.list_tools().tools.is_empty());
+    assert_eq!(service.list_tools().tools.len(), 0);
 }
 
 #[tokio::test]
@@ -303,12 +303,7 @@ fn router_hides_unknown_providers() {
         Arc::new(MockProvider) as Arc<dyn SearchProvider>,
     )]
     .into();
-    assert!(
-        SearchService::with_providers(config, providers)
-            .list_tools()
-            .tools
-            .is_empty()
-    );
+    assert_eq!( SearchService::with_providers(config, providers) .list_tools() .tools .len(), 0);
 }
 
 #[test]
@@ -368,12 +363,7 @@ fn direct_provider_without_credential_is_hidden() {
         .insert("tinyfish".into(), ProviderConfig::default());
     let mut providers: BTreeMap<String, Arc<dyn SearchProvider>> = BTreeMap::new();
     providers.insert("tinyfish".into(), Arc::new(Keyed));
-    assert!(
-        SearchService::with_providers(config.clone(), providers.clone())
-            .list_tools()
-            .tools
-            .is_empty()
-    );
+    assert_eq!( SearchService::with_providers(config.clone(), providers.clone()) .list_tools() .tools .len(), 0);
     config.providers.insert(
         "tinyfish".into(),
         ProviderConfig {

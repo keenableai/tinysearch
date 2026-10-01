@@ -36,7 +36,7 @@ async fn empty_configuration_serves_no_tools_and_rejects_execution() -> tinybus:
     let client = Connection::connect(bus.connect().await?).await?;
     let proxy = client.proxy(names::INTERFACE, names::OBJECT_PATH, names::INTERFACE)?;
     let listed: ListToolsResponse = proxy.call(names::methods::LIST_TOOLS, ()).await?;
-    assert!(listed.tools.is_empty());
+    assert_eq!(listed.tools.len(), 0);
     let result = proxy
         .call::<ExecuteToolResponse>(
             names::methods::EXECUTE_TOOL,
@@ -84,10 +84,10 @@ fn builtins_discover_and_reinitialize_from_private_configuration() {
         provider.enabled = false;
     }
     let refreshed = SearchService::with_providers(config.clone(), crate::provider::builtins());
-    assert!(refreshed.list_tools().tools.is_empty());
+    assert_eq!(refreshed.list_tools().tools.len(), 0);
     config.enabled = false;
     let disabled = SearchService::with_providers(config, crate::provider::builtins());
-    assert!(disabled.list_tools().tools.is_empty());
+    assert_eq!(disabled.list_tools().tools.len(), 0);
 }
 
 #[tokio::test]
