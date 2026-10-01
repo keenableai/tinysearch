@@ -391,7 +391,7 @@ fn all_tools_catalog_is_direct_only() -> std::result::Result<(), Box<dyn std::er
         .ok_or("missing provider")?
         .route = ProviderRoute::Backend;
     let service = SearchService::with_providers(config, builtins());
-    assert!(service.list_tools().tools.is_empty());
+    assert_eq!(service.list_tools().tools.len(), 0);
     Ok(())
 }
 
