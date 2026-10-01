@@ -20,7 +20,7 @@ fn search_is_a_get_with_the_documented_query_fields() -> TestResult<()> {
     )?;
     assert_eq!(method, Method::GET);
     assert_eq!(base, SEARCH_BASE);
-    assert!(path.is_empty());
+    assert_eq!(path.len(), 0);
     assert!(body.is_none());
     assert_eq!(
         params,
@@ -48,8 +48,8 @@ fn fetch_posts_urls_and_format_only() -> TestResult<()> {
     )?;
     assert_eq!(method, Method::POST);
     assert_eq!(base, FETCH_BASE);
-    assert!(path.is_empty());
-    assert!(params.is_empty());
+    assert_eq!(path.len(), 0);
+    assert_eq!(params.len(), 0);
     assert_eq!(
         body,
         Some(json!({"urls":["https://a.example","https://b.example"],"format":"html"}))

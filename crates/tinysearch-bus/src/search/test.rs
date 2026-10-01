@@ -83,7 +83,7 @@ fn roles_and_role_lists_round_trip_as_snake_case() -> serde_json::Result<()> {
     assert_eq!(presentation.mode, PresentationMode::Roles);
     assert_eq!(presentation.roles[&Role::Search], ["brave", "exa"]);
     assert_eq!(presentation.roles[&Role::Answer], ["gemini"]);
-    assert!(presentation.roles[&Role::Contents].is_empty());
+    assert_eq!(presentation.roles[&Role::Contents].len(), 0);
     assert_eq!(
         serde_json::to_value(&presentation)?["roles"]["search"],
         serde_json::json!(["brave", "exa"])
@@ -103,7 +103,7 @@ fn role_response_fields_are_optional_on_the_wire() -> serde_json::Result<()> {
         "provider":"exa","results":[],"citations":[],"answer":null,"status":"empty"
     }))?;
     assert_eq!(legacy.role, None);
-    assert!(legacy.fallback_from.is_empty());
+    assert_eq!(legacy.fallback_from.len(), 0);
     let encoded = serde_json::to_value(&legacy)?;
     assert!(encoded.get("role").is_none());
     assert!(encoded.get("fallback_from").is_none());
