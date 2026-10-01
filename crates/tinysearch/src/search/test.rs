@@ -303,7 +303,13 @@ fn router_hides_unknown_providers() {
         Arc::new(MockProvider) as Arc<dyn SearchProvider>,
     )]
     .into();
-    assert_eq!( SearchService::with_providers(config, providers) .list_tools() .tools .len(), 0);
+    assert_eq!(
+        SearchService::with_providers(config, providers)
+            .list_tools()
+            .tools
+            .len(),
+        0
+    );
 }
 
 #[test]
@@ -363,7 +369,13 @@ fn direct_provider_without_credential_is_hidden() {
         .insert("tinyfish".into(), ProviderConfig::default());
     let mut providers: BTreeMap<String, Arc<dyn SearchProvider>> = BTreeMap::new();
     providers.insert("tinyfish".into(), Arc::new(Keyed));
-    assert_eq!( SearchService::with_providers(config.clone(), providers.clone()) .list_tools() .tools .len(), 0);
+    assert_eq!(
+        SearchService::with_providers(config.clone(), providers.clone())
+            .list_tools()
+            .tools
+            .len(),
+        0
+    );
     config.providers.insert(
         "tinyfish".into(),
         ProviderConfig {

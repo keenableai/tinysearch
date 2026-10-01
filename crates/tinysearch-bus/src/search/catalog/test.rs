@@ -307,7 +307,12 @@ fn roles_mode_without_backend_credential_drops_backend_providers() {
         listed.tools[1].parameters["properties"]["provider"]["enum"],
         json!(["tinyfish"])
     );
-    assert_eq!( select_tools(&BTreeMap::new(), &config.presentation) .tools .len(), 0);
+    assert_eq!(
+        select_tools(&BTreeMap::new(), &config.presentation)
+            .tools
+            .len(),
+        0
+    );
 }
 
 #[test]
