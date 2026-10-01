@@ -173,6 +173,7 @@ pub(super) fn provider_arguments(
 }
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 /// A caller may send `depth: "deep"` from an older declaration (a resumed

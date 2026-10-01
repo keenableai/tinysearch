@@ -370,4 +370,5 @@ pub fn select_tools(
 }
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;

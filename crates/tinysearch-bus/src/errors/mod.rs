@@ -67,4 +67,5 @@ pub fn code_of(message: &str) -> Option<&'static str> {
 }
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;

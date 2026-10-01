@@ -81,4 +81,5 @@ pub(super) fn unwrap(request: &ExecuteToolRequest, mut value: Value) -> Result<V
 }
 
 #[cfg(test)]
+#[path = "tavily/tavily_tests.rs"]
 mod test;
