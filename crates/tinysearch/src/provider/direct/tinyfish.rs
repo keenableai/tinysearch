@@ -106,4 +106,5 @@ pub(super) fn prepare(request: &ExecuteToolRequest, key: &str) -> Result<Prepare
 }
 
 #[cfg(test)]
+#[path = "tinyfish/tinyfish_tests.rs"]
 mod test;

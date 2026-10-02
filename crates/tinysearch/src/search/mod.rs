@@ -316,4 +316,5 @@ fn within_usize_bounds(
 }
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;

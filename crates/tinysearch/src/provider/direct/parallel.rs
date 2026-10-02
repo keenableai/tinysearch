@@ -319,4 +319,5 @@ async fn async_response(
 }
 
 #[cfg(test)]
+#[path = "parallel/parallel_tests.rs"]
 mod test;

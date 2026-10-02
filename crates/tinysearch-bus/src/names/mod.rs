@@ -39,4 +39,5 @@ pub fn role_for_tool(name: &str) -> Option<Role> {
 /// Members in interface dispatch order.
 pub const METHODS: &[&str] = &[methods::LIST_TOOLS, methods::EXECUTE_TOOL];
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;

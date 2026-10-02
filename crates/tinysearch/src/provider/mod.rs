@@ -405,4 +405,5 @@ mod normalize;
 use normalize::normalize;
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
