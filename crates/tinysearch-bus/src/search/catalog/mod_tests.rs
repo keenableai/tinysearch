@@ -34,6 +34,7 @@ fn catalog_and_selection_are_stable() {
             "exa",
             "gemini",
             "gemini_deep_research",
+            "keenable",
             "parallel",
             "querit",
             "searxng",
@@ -43,13 +44,14 @@ fn catalog_and_selection_are_stable() {
         ]
     );
     assert_eq!(specs["tinyfish"].len(), 3);
+    assert_eq!(specs["keenable"].len(), 2);
     assert_eq!(specs["exa"].len(), 4);
     assert_eq!(specs["parallel"].len(), 9);
     let all = PresentationConfig {
         mode: PresentationMode::AllTools,
         ..PresentationConfig::default()
     };
-    assert_eq!(select_tools(&specs, &all).tools.len(), 27);
+    assert_eq!(select_tools(&specs, &all).tools.len(), 29);
 }
 
 #[test]
@@ -144,13 +146,24 @@ fn provider_roles_and_defaults_match_the_contract() {
     assert_eq!(provider_roles("gemini_deep_research"), [Role::Answer]);
     assert_eq!(provider_roles("tinyfish"), [Role::Search, Role::Contents]);
     assert_eq!(provider_roles("tavily"), [Role::Search, Role::Contents]);
+    assert_eq!(provider_roles("keenable"), [Role::Search, Role::Contents]);
+    assert_eq!(
+        role_provider_tool(Role::Search, "keenable"),
+        Some("keenable_search")
+    );
+    assert_eq!(
+        role_provider_tool(Role::Contents, "keenable"),
+        Some("keenable_fetch")
+    );
+    assert_eq!(role_provider_tool(Role::Answer, "keenable"), None);
     for provider in ["brave", "querit", "seltz", "searxng"] {
         assert_eq!(provider_roles(provider), [Role::Search]);
     }
     assert_eq!(
         default_role_providers(Role::Search),
         [
-            "exa", "brave", "tavily", "parallel", "querit", "seltz", "searxng", "tinyfish"
+            "exa", "brave", "tavily", "parallel", "querit", "seltz", "searxng", "tinyfish",
+            "keenable"
         ]
     );
     assert_eq!(
@@ -159,7 +172,7 @@ fn provider_roles_and_defaults_match_the_contract() {
     );
     assert_eq!(
         default_role_providers(Role::Contents),
-        ["exa", "tavily", "parallel", "tinyfish"]
+        ["exa", "tavily", "parallel", "tinyfish", "keenable"]
     );
     assert_eq!(
         PROVIDERS,
@@ -173,7 +186,8 @@ fn provider_roles_and_defaults_match_the_contract() {
             "querit",
             "tavily",
             "seltz",
-            "searxng"
+            "searxng",
+            "keenable"
         ]
     );
     // The TinyHumans backend does not proxy TinyFish: it is own-key only.

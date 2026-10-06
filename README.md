@@ -18,9 +18,9 @@ role that has at least one usable provider:
 
 | Role | Tool | Arguments | Providers (default order) |
 | --- | --- | --- | --- |
-| `search` | `web_search_tool` | `query`, `max_results?` (1-20), `provider?` | exa, brave, tavily, parallel, querit, seltz, searxng, tinyfish |
+| `search` | `web_search_tool` | `query`, `max_results?` (1-20), `provider?` | exa, brave, tavily, parallel, querit, seltz, searxng, tinyfish, keenable |
 | `answer` | `web_answer_tool` | `query`, `depth?` (`quick` or `deep`), `provider?` | gemini, gemini_deep_research, exa, parallel |
-| `contents` | `web_contents_tool` | `urls` (1-10), `query?`, `provider?` | exa, tavily, parallel, tinyfish |
+| `contents` | `web_contents_tool` | `urls` (1-10), `query?`, `provider?` | exa, tavily, parallel, tinyfish, keenable |
 
 `presentation.roles` sets an ordered provider list per role; an absent or empty
 list uses the default order above. The first usable provider answers. When it
@@ -135,6 +135,20 @@ filters plus news scope, and returns up to 20 results. SearXNG
 it with a `base_url` and a direct route. It requests `/search?format=json`,
 maps `web` to the `general` category, uses the configured default language,
 and returns up to 50 results with their source names in `provider_data.sources`.
+
+Keenable (`keenable_search`, `keenable_fetch`) needs no credential: once the
+host enables it with a direct route, it calls Keenable's keyless
+`/v1/search/public` and `/v1/fetch/public`, which are rate limited per IP. A
+configured credential switches both tools to `/v1/search` and `/v1/fetch`,
+sent as `X-API-Key`, for higher limits. Every request names the caller with
+`X-Keenable-Title: tinysearch`, which the keyless endpoints require; it
+carries no user or host identifier. Search posts the query with optional
+`site`, `published_after` and `published_before` filters, returns up to 20
+results with publish dates, and asks for 1,200-character snippets.
+`keenable_fetch` reads each URL (1-10) as markdown from Keenable's index and
+fetches a page live from the source when it is not indexed (a 404). Pages that
+fail are counted in `provider_data.failed_count`; when every page fails, the
+first failure's code is returned so the contents role can fall back.
 
 Every response bounds results, citations, snippets, answers, and retained
 provider metadata. Upstream error bodies are not returned or logged. Provider

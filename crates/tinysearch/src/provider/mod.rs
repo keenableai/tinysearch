@@ -68,7 +68,7 @@ impl BuiltinProvider {
         let (path, body) = match self.name {
             "exa" if config.route == ProviderRoute::Backend => exa_request(request)?,
             "exa" | "parallel" | "brave" | "querit" | "tavily" | "seltz" | "searxng"
-            | "tinyfish" => {
+            | "tinyfish" | "keenable" => {
                 return direct::run(&self.client, self.name, config, request).await;
             }
             "gemini" => return self.gemini(config, backend, request).await,

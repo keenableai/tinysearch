@@ -23,6 +23,7 @@ pub const PROVIDERS: &[&str] = &[
     "tavily",
     "seltz",
     "searxng",
+    "keenable",
 ];
 
 /// Providers that support [`ProviderRoute::Backend`] through the managed
@@ -179,6 +180,20 @@ fn direct_provider_specs() -> BTreeMap<String, Vec<ToolSpec>> {
         json!({"query":text,"max_results":{"type":"integer","minimum":1,"maximum":20},"include_domains":urls(20),"exclude_domains":urls(20),"from_date":text,"to_date":text,"scope":{"type":"string","enum":["news"]}}),
         &["query"],
     )];
+    let keenable = vec![
+        tool(
+            "keenable_search",
+            "Search the web with Keenable",
+            json!({"query":text,"max_results":{"type":"integer","minimum":1,"maximum":20},"site":text,"published_after":text,"published_before":text}),
+            &["query"],
+        ),
+        tool(
+            "keenable_fetch",
+            "Read web pages with Keenable",
+            json!({"urls":urls(10)}),
+            &["urls"],
+        ),
+    ];
     [
         ("exa".into(), exa),
         ("parallel".into(), parallel_specs()),
@@ -186,6 +201,7 @@ fn direct_provider_specs() -> BTreeMap<String, Vec<ToolSpec>> {
         ("querit".into(), querit),
         ("tavily".into(), tavily),
         ("seltz".into(), seltz),
+        ("keenable".into(), keenable),
     ]
     .into()
 }
@@ -288,6 +304,8 @@ pub fn configured_provider_tools(
                 ProviderRoute::Direct if name == "searxng" => {
                     non_empty(explicit.base_url.as_deref())
                 }
+                // Keenable has keyless public endpoints; a credential only raises limits.
+                ProviderRoute::Direct if name == "keenable" => true,
                 ProviderRoute::Direct => {
                     KEYED_DIRECT_PROVIDERS.contains(&name.as_str())
                         && non_empty(explicit.credential.as_deref())

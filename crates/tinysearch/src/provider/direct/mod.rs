@@ -9,6 +9,7 @@ use std::time::Duration;
 
 mod brave;
 mod exa;
+mod keenable;
 #[cfg(test)]
 mod migration_tests;
 mod parallel;
@@ -31,6 +32,10 @@ pub(super) async fn run(
     }
     if provider == "searxng" {
         return searxng::run(client, config, request).await;
+    }
+    // Keenable works without a key, so it skips the credential check below.
+    if provider == "keenable" {
+        return keenable::run(client, config, request).await;
     }
     if provider == "parallel" {
         return parallel::run(client, config, request).await;
