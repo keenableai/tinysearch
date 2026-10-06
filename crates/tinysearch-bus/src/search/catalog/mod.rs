@@ -304,7 +304,10 @@ pub fn configured_provider_tools(
                 ProviderRoute::Direct if name == "searxng" => {
                     non_empty(explicit.base_url.as_deref())
                 }
-                // Keenable has keyless public endpoints; a credential only raises limits.
+                // Keenable has keyless public endpoints, so like SearXNG it has no
+                // credential to gate on: the host's own enabled entry for it is the
+                // opt-in (a default configuration lists nothing), and calls go only to
+                // Keenable or the host's base URL. A credential just raises limits.
                 ProviderRoute::Direct if name == "keenable" => true,
                 ProviderRoute::Direct => {
                     KEYED_DIRECT_PROVIDERS.contains(&name.as_str())

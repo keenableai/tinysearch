@@ -284,7 +284,7 @@ fn keenable_is_listed_without_a_credential_only_when_enabled_and_direct() -> Tes
     };
     let mut config = SearchConfig::default();
     config.presentation.mode = PresentationMode::AllTools;
-    assert!(tool_names(&config).is_empty());
+    assert_eq!(tool_names(&config).len(), 0);
     config
         .providers
         .insert("keenable".into(), ProviderConfig::default());
@@ -299,13 +299,13 @@ fn keenable_is_listed_without_a_credential_only_when_enabled_and_direct() -> Tes
         .get_mut("keenable")
         .ok_or("missing keenable provider")?;
     keenable.route = crate::ProviderRoute::Backend;
-    assert!(tool_names(&config).is_empty());
+    assert_eq!(tool_names(&config).len(), 0);
     let keenable = config
         .providers
         .get_mut("keenable")
         .ok_or("missing keenable provider")?;
     keenable.route = crate::ProviderRoute::Direct;
     keenable.enabled = false;
-    assert!(tool_names(&config).is_empty());
+    assert_eq!(tool_names(&config).len(), 0);
     Ok(())
 }
